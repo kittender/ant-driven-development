@@ -517,12 +517,18 @@ func (p *Pilot) bundle(g Genome, sc honey.Scenario, snap honey.Snapshot, prior [
 		if err != nil {
 			return b, err
 		}
+		defined := map[string]string{}
 		for _, f := range steps {
 			if f != StepFileFor(sc.File) {
 				c, _, _ := p.ws.Read(f)
 				b.ReadOnly[f] = c
+				for _, e := range RegisteredExpressions(c) {
+					defined[e] = f
+				}
 			}
 		}
+		feat, _ := snap.Feature(sc.File)
+		b.Skeletons = RenderSkeletons(Skeletons(feat, sc, defined))
 	case Worker:
 		b.Paths = []string{gameFile, spec}
 		if c, ok, _ := p.ws.Read(StepFileFor(sc.File)); ok {

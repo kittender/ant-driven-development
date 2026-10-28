@@ -46,6 +46,7 @@ Your task: write the Cucumber step definitions that make ONE capped scenario run
 You never write game code. The test you write is right when the scenario runs and fails only because the game is not implemented yet, or passes because the game already does it.
 ` + honeyRule + `
 Rules for the step file:
+- Start from the step skeletons the Ecosystem gives you: keep each first line exactly as written, and write its body.
 - Write the whole file for this feature (it replaces the old one). Keep every step already in it.
 - A step already defined in another step file is shared: do not define it again.
 - Use exactly the step wording of the feature file. Values become cucumber expressions: {string} matches a quoted value including its quotes, {int} a number. The step text it should be player "X"'s turn is registered as:
@@ -60,6 +61,7 @@ The scenario is written in Gherkin. Bind each of its steps to code: Given/When s
 Your file must compile, must not change other tests, and must make this scenario fail only because the game is still "not implemented" (or pass, if the game already handles it).
 ` + honeyRule + `
 How to write the file:
+- Use the step skeletons you are given: their first lines are already correct; fill in the bodies only.
 - Return the complete step file of this feature; it replaces the previous version, so keep what was there.
 - Never redefine a step that another step file already defines.
 - Copy the step text exactly; put {string} where a quoted value is (the quotes belong to {string}) and {int} where a number is. Example: Then("it should be player {string}'s turn", (world, player: string) => { ... }); with double quotes because of the apostrophe.
@@ -154,8 +156,11 @@ type Bundle struct {
 	ReadOnly map[string]string // files shown for reference only
 	Facts    []instruments.Fact
 	Prior    []string // what earlier failed attempts did and why they failed
-	Stable   []Section
-	Paths    []string // the closed menu of writable paths
+	// Skeletons is the reflex's section for testers: the first line of
+	// every step definition the scenario needs, correctly quoted.
+	Skeletons string
+	Stable    []Section
+	Paths     []string // the closed menu of writable paths
 }
 
 // Section is one titled part of the stable context.
@@ -191,6 +196,9 @@ func (b Bundle) User() string {
 			lang = "gherkin"
 		}
 		s.WriteString("\n## " + p + " (you may write it)\n\n```" + lang + "\n" + strings.TrimSpace(c) + "\n```\n")
+	}
+	if b.Skeletons != "" {
+		s.WriteString("\n## Step skeletons for this scenario\n\n" + b.Skeletons + "\n")
 	}
 	s.WriteString("\n## FACTS (computed by the Ecosystem, trusted)\n\n")
 	for _, f := range b.Facts {
