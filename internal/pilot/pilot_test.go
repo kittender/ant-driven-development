@@ -125,6 +125,9 @@ func TestPilotGreenAfterARevert(t *testing.T) {
 			if !strings.Contains(user, "Earlier attempts") || !strings.Contains(user, "does not compile") {
 				t.Errorf("the retry must see the failed attempt and why")
 			}
+			if !strings.Contains(user, "src/game/game.ts line 1: SYNTAX") {
+				t.Errorf("the retry must see the source line in error:\n%s", user)
+			}
 			return reply(Write, "src/game/game.ts", "// IMPLEMENTED")
 		}
 	})

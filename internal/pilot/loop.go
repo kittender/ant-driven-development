@@ -425,7 +425,7 @@ func (p *Pilot) judge(caste Caste, key string, before, after instruments.Survey)
 			}
 			l = append(l, fmt.Sprintf("%s:%d %s %s", f.File, f.Line, f.Rule, f.Message))
 		}
-		return false, "it does not compile:\n" + strings.Join(l, "\n")
+		return false, "it does not compile:\n" + strings.Join(l, "\n") + p.sourceLines(after.Compiler)
 	}
 	if n := instruments.LintErrors(after.Lint); n > 0 {
 		var l []string
@@ -582,4 +582,35 @@ func errString(err error) string {
 func firstLine(s string) string {
 	l, _, _ := strings.Cut(s, "\n")
 	return l
+}
+
+// sourceLines quotes the source line of the first compiler errors, so a
+// retry sees where the error is, not only the compiler's terse message
+// ("',' expected" alone did not tell a small model that an apostrophe had
+// closed its string).
+func (p *Pilot) sourceLines(fs []instruments.Finding) string {
+	var b strings.Builder
+	seen := map[string]bool{}
+	n := 0
+	for _, f := range fs {
+		k := fmt.Sprintf("%s:%d", f.File, f.Line)
+		if seen[k] || n == 5 {
+			continue
+		}
+		seen[k] = true
+		c, ok, err := p.ws.Read(f.File)
+		if err != nil || !ok {
+			continue
+		}
+		lines := strings.Split(c, "\n")
+		if f.Line < 1 || f.Line > len(lines) {
+			continue
+		}
+		if n == 0 {
+			b.WriteString("\nThe lines in error:")
+		}
+		n++
+		fmt.Fprintf(&b, "\n%s line %d: %s", f.File, f.Line, strings.TrimSpace(lines[f.Line-1]))
+	}
+	return b.String()
 }
