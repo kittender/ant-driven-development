@@ -64,6 +64,8 @@ type Attempt struct {
 	ProverS   float64      `json:"prover_s"`
 	HoneyEvts []HoneyEvent `json:"honey_events,omitempty"`
 	Reflexes  []string     `json:"reflexes,omitempty"` // deterministic edits made to the written file
+	Hints     []string     `json:"hints,omitempty"`    // reflex 5: compiler hints shown to the next attempt
+	Lost      string       `json:"lost,omitempty"`     // run 3 split: "interface" or "code" when lost before any test ran
 }
 
 // HoneyEvent is a change to the workspace's honey, attributed to a session.
@@ -336,13 +338,13 @@ func (p *Pilot) attempt(ctx context.Context, g Genome, key string, prior []strin
 	if g.Caste == Tester {
 		stepsPath = StepFileFor(sc.File)
 	}
-	reply, perr := ParseReply(comp.Text, b.Paths, specDir+"/", stepsPath, b.ToWrite)
+	reply, perr := ParseReply(comp.Text, b.Paths, specDir+"/", stepsPath, b.ToWrite, b.Methods...)
 	for _, n := range reply.Unwrapped {
 		a.Reflexes = append(a.Reflexes, fmt.Sprintf("unwrapped body %d", n))
 	}
 	a.Action, a.Path, a.Note = reply.Action, reply.Path, reply.Note
 	if perr != nil {
-		a.Reason = "invalid reply: " + perr.Error()
+		a.Reason, a.Lost = "invalid reply: "+perr.Error(), "interface"
 		return a, "Your reply was rejected before anything ran: " + perr.Error(), nil
 	}
 
@@ -374,6 +376,26 @@ func (p *Pilot) attempt(ctx context.Context, g Genome, key string, prior []strin
 		}
 		reply.Content = RenderStepFile(MergeSteps(ParseStepFile(old), add))
 	}
+	if g.Caste == Worker && reply.Path == gameFile && len(b.Methods) > 0 {
+		// Reflex 4: the harness writes game.ts from the bodies.
+		gf := GameFile{Helpers: b.Game.Helpers, Bodies: map[string]string{}}
+		for k, v := range b.Game.Bodies {
+			gf.Bodies[k] = v
+		}
+		for i, m := range b.Methods {
+			if reply.Bodies[i] != "" {
+				gf.Bodies[m.Name] = reply.Bodies[i]
+			}
+		}
+		if reply.Helpers != "" {
+			gf.Helpers = reply.Helpers
+		}
+		var dropped []string
+		reply.Content, dropped = RenderGameFile(gf, b.Methods)
+		for _, d := range dropped {
+			a.Reflexes = append(a.Reflexes, "left out unused parameter "+d)
+		}
+	}
 	if g.Caste == Worker && reply.Path == gameFile {
 		// Reflex: auto-import the contract types the code uses.
 		if c, ok, _ := p.ws.Read("src/game/contract.ts"); ok {
@@ -403,6 +425,15 @@ func (p *Pilot) attempt(ctx context.Context, g Genome, key string, prior []strin
 	p.surveys = append(p.surveys, s)
 	p.log("surveys.jsonl", s)
 	ok, reason := p.judge(g.Caste, key, p.survey, s)
+	if len(s.Compiler) > 0 && len(s.Problems) == 0 {
+		_, a.Hints = Hints(s.Compiler)
+		a.Lost = "interface"
+		for _, f := range s.Compiler {
+			if strings.HasPrefix(f.File, "src/") {
+				a.Lost = "code"
+			}
+		}
+	}
 	a.After = string(stateOf(s, key))
 	a.Accepted, a.Reason = ok, reason
 
@@ -451,7 +482,8 @@ func (p *Pilot) judge(caste Caste, key string, before, after instruments.Survey)
 			}
 			l = append(l, fmt.Sprintf("%s:%d %s %s", f.File, f.Line, f.Rule, f.Message))
 		}
-		return false, "it does not compile:\n" + strings.Join(l, "\n") + p.sourceLines(after.Compiler)
+		hints, _ := Hints(after.Compiler)
+		return false, "it does not compile:\n" + strings.Join(l, "\n") + p.sourceLines(after.Compiler) + hints
 	}
 	if n := instruments.LintErrors(after.Lint); n > 0 {
 		var l []string
@@ -562,6 +594,13 @@ func (p *Pilot) bundle(g Genome, sc honey.Scenario, snap honey.Snapshot, prior [
 		b.ToWrite = Pending(b.Skeletons)
 	case Worker:
 		b.Paths = []string{gameFile, spec}
+		if c, ok, _ := p.ws.Read("src/game/contract.ts"); ok {
+			b.Methods = ContractMethods(c)
+		}
+		if len(b.Methods) > 0 {
+			cur, _, _ := p.ws.Read(gameFile)
+			b.Game = ParseGameFile(cur, b.Methods)
+		}
 		if c, ok, _ := p.ws.Read(StepFileFor(sc.File)); ok {
 			b.ReadOnly[StepFileFor(sc.File)] = c
 		}

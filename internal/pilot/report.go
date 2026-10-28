@@ -99,16 +99,51 @@ func (p *Pilot) WriteReport() error {
 		}
 	}
 	w("| Writes rejected by the Prover | %d |", rejectedWrites)
-	w("| Writes a reflex edited (auto-import, unwrap) | %d, of which accepted %d |", reflexes, reflexAccepted)
-	lost := 0
+	w("| Writes a reflex edited (auto-import, unwrap, unused parameter) | %d, of which accepted %d |", reflexes, reflexAccepted)
+	lost, lostIface, lostCode, workers, workerNoCompile := 0, 0, 0, 0, 0
+	hints := map[string]int{}
 	for _, a := range p.attempts {
-		if !a.Accepted && (strings.HasPrefix(a.Reason, "invalid reply") || strings.HasPrefix(a.Reason, "it does not compile")) {
+		if a.Caste == Worker {
+			workers++
+			if strings.HasPrefix(a.Reason, "it does not compile") {
+				workerNoCompile++
+			}
+		}
+		for _, h := range a.Hints {
+			hints[h]++
+		}
+		if a.Accepted {
+			continue
+		}
+		switch a.Lost {
+		case "interface":
 			lost++
+			lostIface++
+		case "code":
+			lost++
+			lostCode++
 		}
 	}
-	if calls > 0 {
-		w("| Sessions lost before any test ran (invalid reply or compile) | %d (%.0f%%) |", lost, 100*float64(lost)/float64(calls))
+	pct := func(n, d int) string {
+		if d == 0 {
+			return "n/a"
+		}
+		return fmt.Sprintf("%.0f%%", 100*float64(n)/float64(d))
 	}
+	w("| Sessions lost before any test ran | %d (%s) |", lost, pct(lost, calls))
+	w("| … interface losses (invalid reply, or compile errors outside src/) | %d (%s) |", lostIface, pct(lostIface, calls))
+	w("| … code losses (compile errors in src/) | %d (%s) |", lostCode, pct(lostCode, calls))
+	w("| Worker sessions that do not compile | %d of %d (%s) |", workerNoCompile, workers, pct(workerNoCompile, workers))
+	var hl []string
+	for _, h := range compilerHints {
+		if hints[h.ID] > 0 {
+			hl = append(hl, fmt.Sprintf("%s %d", h.ID, hints[h.ID]))
+		}
+	}
+	if len(hl) == 0 {
+		hl = []string{"none"}
+	}
+	w("| Compiler hints shown (reflex 5) | %s |", strings.Join(hl, ", "))
 	w("| … of which broke another scenario | %d |", regressions)
 	w("")
 

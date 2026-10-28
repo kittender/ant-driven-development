@@ -63,23 +63,23 @@ How to answer:
 - Skip the steps marked as already defined. Strict TypeScript.`
 
 const workerA = `You are a worker ageant in an ADD colony: one small change, then you end.
-Your task: change src/game/game.ts so that ONE capped scenario passes, without breaking a scenario that already passes.
+Your task: change the game code so that ONE capped scenario passes, without breaking a scenario that already passes.
 ` + honeyRule + `
-Rules:
-- Implement the contract in src/game/contract.ts exactly; never change the contract or the tests.
-- Write the whole file src/game/game.ts (it replaces the old one). Keep what already works.
-- The game rules are pure functions over immutable state. Do not use the DOM.
-- Make the smallest change that makes the scenario pass. Functions not needed yet may keep throwing "not implemented".
-- TypeScript is strict: no implicit any.`
+What you write:
+- You send one body per contract method, in order: only the code inside the method. The Ecosystem writes src/game/game.ts: the imports, each method's first line (typed by the contract, parameters included), the closing brackets and the export.
+- An empty body keeps that method as it is now. Send a body only for the methods this scenario needs.
+- helpers: top-level functions and constants your bodies share (for example a winner check), placed before the methods. Empty keeps the current helpers; otherwise send the whole new helpers section.
+- The contract's state is readonly: return new objects ({ ...state, turn: 'O' }), never assign to a property.
+- Pure functions, no DOM. Never change the contract or the tests. TypeScript is strict: no implicit any.`
 
 const workerB = `You implement tic-tac-toe rules in TypeScript, one scenario at a time.
-Change only src/game/game.ts. It must satisfy the types in src/game/contract.ts, make the target scenario's tests pass, and keep every passing scenario passing.
+The game is the contract's GameApi; its methods' first lines are written for you, and you write what each method does, so that the target scenario's tests pass and every passing scenario keeps passing.
 ` + honeyRule + `
-How to write it:
-- Return the complete new src/game/game.ts.
-- Pure functions, immutable state, no DOM. The contract and the tests are fixed.
-- Do just what the scenario needs; leave other functions throwing "not implemented" if they are not needed yet.
-- Strict TypeScript: no implicit any.`
+How to answer:
+- bodies: one per contract method, in the order given; the code inside the method only, no first line, no imports. An empty body leaves the method unchanged.
+- helpers: shared top-level code placed before the methods (empty = keep the current helpers).
+- State is immutable (readonly types): build new objects with spread; do not mutate.
+- Do just what the scenario needs. Pure functions, no DOM, strict TypeScript.`
 
 // Action of a writer session (one per session: rule 5).
 type Action string
@@ -95,7 +95,8 @@ type Reply struct {
 	Note    string   `json:"note"`
 	Action  Action   `json:"action"`
 	Path    string   `json:"path"`
-	Bodies  []string `json:"bodies,omitempty"` // testers: one body per step skeleton
+	Bodies  []string `json:"bodies,omitempty"`  // testers: one per step skeleton; workers: one per contract method
+	Helpers string   `json:"helpers,omitempty"` // workers: shared top-level code (reflex 4)
 	Content string   `json:"content"`
 	// Unwrapped lists the bodies (1-based) reflex 3 unwrapped; set by ParseReply.
 	Unwrapped []int `json:"-"`
@@ -104,7 +105,7 @@ type Reply struct {
 // replySchema: the note first (rule 3), every field required (rule 2), the
 // path a closed choice the Ecosystem gave (rule 4). "none" goes with cannot.
 // Testers also send bodies: one per step skeleton (the harness writes the file).
-func replySchema(paths []string, bodies bool) map[string]any {
+func replySchema(paths []string, bodies, helpers bool) map[string]any {
 	enum := append(append([]string{}, paths...), "none")
 	fields := []model.Field{
 		{Name: "note", Schema: map[string]any{"type": "string"}},
@@ -114,14 +115,18 @@ func replySchema(paths []string, bodies bool) map[string]any {
 	if bodies {
 		fields = append(fields, model.Field{Name: "bodies", Schema: map[string]any{"type": "array", "items": map[string]any{"type": "string"}}})
 	}
+	if helpers {
+		fields = append(fields, model.Field{Name: "helpers", Schema: map[string]any{"type": "string"}})
+	}
 	fields = append(fields, model.Field{Name: "content", Schema: map[string]any{"type": "string"}})
 	return model.ObjectSchema(fields...)
 }
 
 // ParseReply reads and checks a reply against the menu. stepsPath, when
 // set, is the step file the harness writes from one body per skeleton in
-// expected.
-func ParseReply(raw string, paths []string, specPrefix, stepsPath string, expected []Skeleton) (Reply, error) {
+// expected. methods, when given, are the contract methods a worker sends
+// one body each for (reflex 4); the harness then writes the game file.
+func ParseReply(raw string, paths []string, specPrefix, stepsPath string, expected []Skeleton, methods ...Method) (Reply, error) {
 	nBodies := len(expected)
 	var r Reply
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &r); err != nil {
@@ -156,6 +161,32 @@ func ParseReply(raw string, paths []string, specPrefix, stepsPath string, expect
 			}
 			return r, nil
 		}
+		if len(methods) > 0 && r.Path == gameFile {
+			if len(r.Bodies) != len(methods) {
+				return r, fmt.Errorf("%d bodies sent, %d contract methods: send exactly one body per method, in order (an empty body keeps a method as it is)", len(r.Bodies), len(methods))
+			}
+			changed := false
+			for i, b := range r.Bodies {
+				c, unwrapped, err := CleanWorkerBody(b, methods[i].Name)
+				if err != nil {
+					return r, fmt.Errorf("body %d: %w", i+1, err)
+				}
+				if unwrapped {
+					r.Unwrapped = append(r.Unwrapped, i+1)
+				}
+				r.Bodies[i] = c
+				changed = changed || c != ""
+			}
+			h, err := CleanHelpers(r.Helpers, methods)
+			if err != nil {
+				return r, err
+			}
+			r.Helpers = h
+			if !changed && h == "" {
+				return r, fmt.Errorf("write with every body and the helpers empty: nothing would change")
+			}
+			return r, nil
+		}
 		if strings.TrimSpace(r.Content) == "" {
 			return r, fmt.Errorf("write with empty content")
 		}
@@ -185,8 +216,12 @@ type Bundle struct {
 	// those the tester sends a body for (the others are already defined).
 	Skeletons []Skeleton
 	ToWrite   []Skeleton
-	Stable    []Section
-	Paths     []string // the closed menu of writable paths
+	// Methods and Game are reflex 4's for workers: the contract methods and
+	// the current bodies of game.ts. No methods: the worker writes the file.
+	Methods []Method
+	Game    GameFile
+	Stable  []Section
+	Paths   []string // the closed menu of writable paths
 }
 
 // Section is one titled part of the stable context.
@@ -226,6 +261,9 @@ func (b Bundle) User() string {
 	if len(b.Skeletons) > 0 {
 		s.WriteString("\n## Step skeletons for this scenario\n\n" + RenderSkeletons(b.Skeletons) + "\n")
 	}
+	if len(b.Methods) > 0 {
+		s.WriteString("\n## Contract methods (one body each; the Ecosystem writes src/game/game.ts)\n\n" + RenderMethods(b.Methods, b.Game) + "\n")
+	}
 	s.WriteString("\n## FACTS (computed by the Ecosystem, trusted)\n\n")
 	for _, f := range b.Facts {
 		s.WriteString("- " + f.Render() + "\n")
@@ -241,12 +279,16 @@ func (b Bundle) User() string {
 	case Tester:
 		s.WriteString(fmt.Sprintf("Write the step definitions for the capped scenario %q: one body for each of the %d step skeletons to write.\n", b.Scenario.Name, len(b.ToWrite)))
 	case Worker:
-		s.WriteString(fmt.Sprintf("Change src/game/game.ts so that the capped scenario %q passes.\n", b.Scenario.Name))
+		s.WriteString(fmt.Sprintf("Change the game code so that the capped scenario %q passes.\n", b.Scenario.Name))
 	}
 	s.WriteString("\n```gherkin\n" + strings.TrimRight(b.Scenario.Text(), "\n") + "\n```\n")
 	if b.Genome.Caste == Tester {
 		s.WriteString("\n## YOUR REPLY\n\nOne JSON object: note (what you will do, one or two sentences), then action, path, bodies, content.\n")
 		s.WriteString(fmt.Sprintf("- write the steps: path is %s; bodies is a list of exactly %d bodies, one per step skeleton to write, in order (Step 1 first); content is empty.\n", StepFileFor(b.Scenario.File), len(b.ToWrite)))
+		s.WriteString("- write the honey: path is " + specDir + "/" + b.Scenario.File + "; content is the whole feature file; bodies is empty.\n")
+	} else if len(b.Methods) > 0 {
+		s.WriteString("\n## YOUR REPLY\n\nOne JSON object: note (what you will do, one or two sentences), then action, path, bodies, helpers, content.\n")
+		s.WriteString(fmt.Sprintf("- write the game: path is %s; bodies is a list of exactly %d bodies, one per contract method, in order (Body 1 first), each the code inside the method or empty to keep it; helpers is the shared code or empty to keep it; content is empty.\n", gameFile, len(b.Methods)))
 		s.WriteString("- write the honey: path is " + specDir + "/" + b.Scenario.File + "; content is the whole feature file; bodies is empty.\n")
 	} else {
 		s.WriteString("\n## YOUR REPLY\n\nOne JSON object: note (what you will do, one or two sentences), then action, path, content.\n")
@@ -267,7 +309,7 @@ func (b Bundle) Request(modelSpec string, maxTokens, ctxTokens int) model.Reques
 		Seed:          b.Genome.Seed,
 		MaxTokens:     maxTokens,
 		ContextTokens: ctxTokens,
-		Format:        replySchema(b.Paths, b.Genome.Caste == Tester),
+		Format:        replySchema(b.Paths, b.Genome.Caste == Tester || len(b.Methods) > 0, len(b.Methods) > 0),
 	}
 }
 
