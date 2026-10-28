@@ -63,6 +63,7 @@ type Attempt struct {
 	Latency   float64      `json:"latency_s"`
 	ProverS   float64      `json:"prover_s"`
 	HoneyEvts []HoneyEvent `json:"honey_events,omitempty"`
+	Reflexes  []string     `json:"reflexes,omitempty"` // deterministic edits made to the written file
 }
 
 // HoneyEvent is a change to the workspace's honey, attributed to a session.
@@ -369,6 +370,16 @@ func (p *Pilot) attempt(ctx context.Context, g Genome, key string, prior []strin
 			add = append(add, StepDef{Keyword: s.Keyword, Expression: s.Expression, Params: s.Params, Body: reply.Bodies[i]})
 		}
 		reply.Content = RenderStepFile(MergeSteps(ParseStepFile(old), add))
+	}
+	if g.Caste == Worker && reply.Path == gameFile {
+		// Reflex: auto-import the contract types the code uses.
+		if c, ok, _ := p.ws.Read("src/game/contract.ts"); ok {
+			var added []string
+			reply.Content, added = AutoImportTypes(reply.Content, "./contract", ContractTypes(c))
+			for _, n := range added {
+				a.Reflexes = append(a.Reflexes, "added type import "+n)
+			}
+		}
 	}
 	if err := p.ws.Write(reply.Path, reply.Content); err != nil {
 		return a, "", err

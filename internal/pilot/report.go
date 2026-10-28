@@ -89,7 +89,17 @@ func (p *Pilot) WriteReport() error {
 	if green > 0 {
 		w("| Sessions per green scenario | %.1f |", float64(calls)/float64(green))
 	}
+	reflexes, reflexAccepted := 0, 0
+	for _, a := range p.attempts {
+		if len(a.Reflexes) > 0 {
+			reflexes++
+			if a.Accepted {
+				reflexAccepted++
+			}
+		}
+	}
 	w("| Writes rejected by the Prover | %d |", rejectedWrites)
+	w("| Writes a reflex edited (auto-import) | %d, of which accepted %d |", reflexes, reflexAccepted)
 	w("| … of which broke another scenario | %d |", regressions)
 	w("")
 

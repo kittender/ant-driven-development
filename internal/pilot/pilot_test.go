@@ -396,3 +396,39 @@ func TestCleanBodyKeepsInnerIndent(t *testing.T) {
 		t.Fatalf("%q %v", b, err)
 	}
 }
+
+const contractSrc = "export type Player = 'X' | 'O';\nexport interface GameState { turn: Player }\nexport interface GameApi { newGame(): GameState }\nexport type Status = 'a';\n"
+
+func TestAutoImportTypes(t *testing.T) {
+	types := ContractTypes(contractSrc)
+	if strings.Join(types, ",") != "Player,GameState,GameApi,Status" {
+		t.Fatal(types)
+	}
+	src := "import type { GameApi } from './contract';\n\nexport const game: GameApi = {\n  newGame(): GameState {\n    return { turn: 'X' as Player };\n  },\n};\n"
+	out, added := AutoImportTypes(src, "./contract", types)
+	if strings.Join(added, ",") != "GameState,Player" || !strings.HasPrefix(out, "import type { GameApi, GameState, Player } from './contract';\n") {
+		t.Fatalf("%v\n%s", added, out)
+	}
+	src = "export const x = 1;\nfunction f(s: Status) { return s; }\n"
+	out, added = AutoImportTypes(src, "./contract", types)
+	if len(added) != 1 || !strings.HasPrefix(out, "import type { Status } from './contract';\n") {
+		t.Fatalf("%v\n%s", added, out)
+	}
+	src = "import { a } from 'b';\ninterface Player { x: 1 }\nconst p: Player = { x: 1 };\n"
+	if _, added = AutoImportTypes(src, "./contract", types); len(added) != 0 {
+		t.Fatalf("a local declaration must win: %v", added)
+	}
+	src = "import { a } from 'b';\nconst g: GameState = a;\n"
+	out, _ = AutoImportTypes(src, "./contract", types)
+	if !strings.Contains(out, "import { a } from 'b';\nimport type { GameState } from './contract';\nconst g") {
+		t.Fatalf("after the last import:\n%s", out)
+	}
+}
+
+func TestAutoImportKeepsBlankLine(t *testing.T) {
+	src := "import type { GameApi } from './contract';\n\nexport const game: GameApi = { newGame(): GameState { return x; } };\n"
+	out, _ := AutoImportTypes(src, "./contract", ContractTypes(contractSrc))
+	if !strings.HasPrefix(out, "import type { GameApi, GameState } from './contract';\n\nexport const") {
+		t.Fatalf("%q", out)
+	}
+}
