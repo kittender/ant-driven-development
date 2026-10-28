@@ -402,6 +402,31 @@ Run `20261028-190735`: clean workspace (22 undefined at start), changes and rule
 
 *Reading the rule honestly.* The "lost before any test ran" measure counts compile errors as interface losses, as written before the run. In run 2 most compile errors are about the code itself (immutability, types against the contract), so the share overstates the interface's part. The rule's verdict stands; the next step should separate the two before another run.
 
+== Run 3 of the first loop (fixed before any change and any run, 2026-10-28)
+
+Asked by the human: no larger model, "make the small work smarter". Run 2 showed the testers improving once the Ecosystem wrote the step file, while workers, still writing whole files, failed to compile in 27 of 38 sessions (71%). Run 3 gives workers what worked for testers. Everything else stays as in run 2: same seed honey, contract, typed world, model (qwen3:8b, thinking off), genomes' roles, attempts (2 + 1), tester interface, Part B table.
+
+*Changes.*
+
+. *Reflex 4, worker skeleton.* The Ecosystem writes `src/game/game.ts`: the imports, one `const name: GameApi['name'] = (params) => { … };` per contract method in contract order, and the final `export const game: GameApi = { … }`. A worker sends one body per method (an empty body keeps the current one) and an optional helpers section (top-level functions and constants, placed before the methods; empty keeps the current helpers). Typing each method by the contract gives every returned literal its contract type. A body sent as a whole declaration of its method is unwrapped, as for testers, and logged. Trailing parameters a body does not use are left out of its first line (the lint rule `no-unused-vars` would refuse them), also logged.
+. *Reflex 5, compiler hints.* When a write does not compile, the reason given to the next attempt adds one fixed hint per kind of error seen, written once by the human-side author and never by a model: assignment to `readonly` (TS2540, TS2542, TS2322 on readonly arrays) → build a new object with spread; `string` not assignable to a union of literals (TS2322) → type the variable with the contract's type; use before declaration (TS2448, TS2454) → declare helpers before use; implicit `any` (TS7006, TS7022, TS7031) → annotate with a contract type. Hints are deterministic, logged, and the same for testers and workers.
+. *Measure split.* A session lost before any test ran is counted as an *interface loss* (invalid reply, or compile errors only in files the Ecosystem assembled from the reply outside `src/`) or a *code loss* (a compile error in `src/`). Run 2's 58 losses are recounted the same way and reported beside run 3's.
+
+*Rules, in addition to the Part B table (unchanged).*
+
+[%header,cols="2,3"]
+|===
+| Result | Decision
+| Interface losses > 50% of sessions | The interface is still the bottleneck: change it before drawing anything about the model or ADD
+| Interface losses ≤ 25% | The run measures the colony's work on the game; the Part B verdict stands for ADD with qwen3:8b on this task
+| Between | Open: report both
+| Worker sessions that do not compile ≤ 35% (half of run 2's 71%) | Changes 1 and 2 help a small worker: keep them for every later run and language
+| That share > 50% | They do not help enough: the next run tries thinking on for workers, then one method per session
+| Green scenarios | Reported in two counts, with and without a reflex edit in their accepted sessions, as in run 2
+|===
+
+*Not a rule.* Run 2 against run 3 side by side. Changes 1 and 2 ship together, so a drop in compile failures is credited to the pair; the hint log says how often each hint was shown.
+
 == Architecture 0.1 → 0.2
 
 * *Components*: an Instruments component (or Sensor extension) appending `Deposited` events with an instrument actor.
