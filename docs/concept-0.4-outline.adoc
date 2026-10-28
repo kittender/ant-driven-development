@@ -334,6 +334,8 @@ Written 2026-10-28, before any instrument or worker ran on the benchmark. The hu
 
 *Sixth trial, not counted (`20261028-172246`).* First accepted tester: its bodies, assembled by the harness, compile, pass lint and leave the scenario red on "not implemented". The worker phase then failed three times on compile errors; worker-b's last attempt made the scenario *pass at runtime* and failed only on a missing `import type { GameState }`. Worker-a's attempts referenced a `notYet` helper they had removed. Added a second reflex (law 9): after a worker writes `game.ts`, the harness imports any contract type the code uses but neither imports nor declares, as an editor's auto-import does. Every reflex edit is logged with its attempt and counted in the report (writes edited, and of those accepted), so a green scenario that needed a reflex stays visible. Check: worker-b's file with the reflex passes `tsc` and ESLint on the workspace.
 
+*Seventh trial, not counted (`20261028-173543`, started from the sixth trial's accepted step file).* *First green scenario.* Worker-a attempt 1 failed on its own removed `notYet` helper (the reflex had added `GameState`, which did not save it); attempt 2, given the quoted lines in error, kept `notYet`, imported `GameState` itself and passed, with no reflex. The harness is frozen from here: the decision run starts from a clean workspace (the seed honey, empty step files, the empty `game.ts`).
+
 *Limits stated before the run.* One game, one stack, honey written by one person; a script stands in for the Sensor, Warden and Clock; one model family. A positive result says the loop can close on a small, sharp specification, not that ADD scales.
 
 == Architecture 0.1 → 0.2
