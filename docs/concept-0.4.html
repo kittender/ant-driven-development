@@ -1,0 +1,849 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ant-Driven Development 0.4</title>
+<style>
+  :root {
+    --chalk: #eef0e6;
+    --tunnel: #e1e5d3;
+    --bark: #2b2a1f;
+    --loam: #6f5a40;
+    --leaf: #2f6b34;
+    --leaf-soft: #cfe0c4;
+    --alarm: #a52a22;
+    --alarm-soft: #f0d5cf;
+    --line: #b9bfa6;
+    --head: "Avenir Next", "Segoe UI Variable Display", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --body: Charter, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --mono: "SF Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --chalk: #1f1e17;
+      --tunnel: #2a2a20;
+      --bark: #e9ead9;
+      --loam: #c2ab8a;
+      --leaf: #8fc68a;
+      --leaf-soft: #2c3d2a;
+      --alarm: #e88d83;
+      --alarm-soft: #43231f;
+      --line: #4a4b3b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--chalk);
+    color: var(--bark);
+    font-family: var(--body);
+    font-size: 18px;
+    line-height: 1.65;
+  }
+  .page { max-width: 880px; margin: 0 auto; padding: 0 20px 96px; }
+
+  /* Hero */
+  header.hero { padding: 72px 0 40px; display: grid; grid-template-columns: 1fr 220px; gap: 24px; align-items: end; }
+  .hero h1 {
+    font-family: var(--head); font-weight: 800; letter-spacing: -0.03em;
+    font-size: clamp(2.6rem, 8vw, 4.6rem); line-height: 0.98; margin: 0 0 20px;
+  }
+  .hero p.lede { font-size: 1.25rem; line-height: 1.5; margin: 0; max-width: 34em; }
+  .hero .draft { font-family: var(--head); font-size: 0.9rem; color: var(--loam); margin: 0 0 14px; }
+  .hero svg { width: 100%; height: auto; }
+  .ant-ink { fill: var(--bark); stroke: var(--bark); }
+
+  /* The trail: the page's one signature device */
+  main { position: relative; padding-left: 44px; }
+  main::before {
+    content: ""; position: absolute; left: 11px; top: 8px; bottom: 0;
+    border-left: 3px dotted var(--loam); opacity: 0.55;
+  }
+  section { position: relative; padding: 36px 0 8px; }
+  section > h2 {
+    font-family: var(--head); font-weight: 750; letter-spacing: -0.015em;
+    font-size: 1.85rem; line-height: 1.15; margin: 0 0 14px;
+  }
+  section > h2::before {
+    content: ""; position: absolute; left: -40px; top: 46px;
+    width: 17px; height: 17px; border-radius: 50%;
+    background: var(--leaf); box-shadow: 0 0 0 5px var(--chalk);
+  }
+  h3 { font-family: var(--head); font-weight: 700; font-size: 1.15rem; margin: 28px 0 8px; }
+  p { margin: 0 0 14px; max-width: 42em; }
+  ul, ol { margin: 0 0 14px; padding-left: 1.3em; max-width: 42em; }
+  li { margin-bottom: 6px; }
+  a { color: var(--leaf); }
+  a:focus-visible { outline: 3px solid var(--leaf); outline-offset: 2px; }
+  code, pre, .trail { font-family: var(--mono); font-size: 0.86em; }
+  code { background: var(--tunnel); padding: 1px 5px; border-radius: 4px; }
+  pre {
+    background: var(--tunnel); border-left: 4px solid var(--loam);
+    padding: 14px 16px; overflow-x: auto; line-height: 1.55; margin: 0 0 16px;
+    border-radius: 0 6px 6px 0;
+  }
+  pre .c { color: var(--loam); }
+
+  nav.toc { font-family: var(--head); font-size: 0.95rem; margin: 0 0 8px; padding-left: 44px; }
+  nav.toc a { display: inline-block; margin: 0 14px 6px 0; }
+
+  /* Tables */
+  .scroll { overflow-x: auto; margin: 0 0 18px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; line-height: 1.45; min-width: 560px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { font-family: var(--head); font-weight: 700; border-bottom: 2px solid var(--bark); }
+  td.e { font-size: 1.35rem; line-height: 1.1; white-space: nowrap; }
+  td.n { font-family: var(--head); font-weight: 700; white-space: nowrap; }
+
+  /* Notes */
+  .field { border: 1px dashed var(--loam); border-radius: 6px; padding: 12px 16px; margin: 0 0 18px; font-size: 0.95rem; max-width: 44em; }
+  .field strong { font-family: var(--head); }
+  .field p:last-child { margin-bottom: 0; }
+
+  /* Diagrams */
+  figure { margin: 8px 0 22px; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { font-size: 0.9rem; color: var(--loam); margin-top: 8px; max-width: 44em; }
+  .d-band { fill: var(--tunnel); stroke: var(--line); }
+  .d-box { fill: var(--chalk); stroke: var(--bark); stroke-width: 1.5; }
+  .d-leaf { fill: var(--leaf-soft); stroke: var(--leaf); stroke-width: 1.5; }
+  .d-t { fill: var(--bark); font-family: var(--head); font-size: 14px; }
+  .d-tb { fill: var(--bark); font-family: var(--head); font-size: 15px; font-weight: 700; }
+  .d-ts { fill: var(--loam); font-family: var(--head); font-size: 12.5px; }
+  .d-arrow { stroke: var(--bark); stroke-width: 1.8; fill: none; }
+  .d-head { fill: var(--bark); }
+
+  /* Decay strip */
+  .decay { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin: 0 0 8px; }
+  .decay div { background: var(--tunnel); border-radius: 6px; padding: 10px 8px; text-align: center; font-size: 0.82rem; font-family: var(--head); min-height: 104px; }
+  .decay .s { display: block; font-size: 1.25rem; min-height: 1.6em; letter-spacing: -2px; }
+  .decay .hit { background: var(--leaf-soft); outline: 2px solid var(--leaf); }
+  .decay .t { color: var(--loam); display: block; margin-bottom: 4px; }
+
+  /* Compare */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 0 0 18px; }
+  .compare > div { padding: 16px; border-radius: 8px; min-width: 0; }
+  .compare .bad { background: var(--alarm-soft); border-top: 4px solid var(--alarm); }
+  .compare .good { background: var(--leaf-soft); border-top: 4px solid var(--leaf); }
+  .compare h3 { margin-top: 0; }
+  .compare pre { background: var(--chalk); border-left: 0; border-radius: 6px; font-size: 0.8em; }
+  .compare ul { font-size: 0.93rem; margin-bottom: 0; }
+
+  /* Steps */
+  ol.steps { list-style: none; padding: 0; counter-reset: s; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; max-width: none; }
+  ol.steps li { counter-increment: s; background: var(--tunnel); border-radius: 8px; padding: 14px; font-size: 0.92rem; line-height: 1.45; margin: 0; }
+  ol.steps li::before { content: counter(s); font-family: var(--head); font-weight: 800; font-size: 1.5rem; display: block; color: var(--leaf); line-height: 1; margin-bottom: 6px; }
+  ol.steps .trail { display: block; margin-top: 8px; font-size: 1rem; }
+
+  ol.laws { counter-reset: l; list-style: none; padding: 0; }
+  ol.laws li { counter-increment: l; padding: 12px 0 12px 54px; border-bottom: 1px solid var(--line); position: relative; margin: 0; }
+  ol.laws li::before { content: counter(l); position: absolute; left: 0; top: 8px; font-family: var(--head); font-weight: 800; font-size: 1.9rem; color: var(--leaf); line-height: 1.1; }
+  ol.laws strong { font-family: var(--head); }
+
+  footer { padding: 40px 0 0 44px; font-size: 0.9rem; color: var(--loam); }
+
+    /* 0.4 additions */
+  .new { font-family: var(--head); font-size: 0.62em; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+         background: var(--leaf-soft); color: var(--leaf); border: 1px solid var(--leaf); border-radius: 999px; padding: 1px 8px; vertical-align: 0.25em; white-space: nowrap; }
+  section > h2 .new { font-size: 0.42em; }
+  .ok { font-family: var(--head); font-weight: 700; color: var(--leaf); margin-right: 6px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 6px 0 22px; }
+  .stats div { background: var(--tunnel); border-radius: 8px; padding: 14px; font-family: var(--head); font-size: 0.85rem; line-height: 1.35; }
+  .stats .v { display: block; font-weight: 800; font-size: 1.45rem; letter-spacing: -0.02em; color: var(--leaf); margin-bottom: 4px; line-height: 1.1; }
+  .sm .d-tb { font-size: 13px; }
+  .sm .d-ts { font-size: 11px; }
+  .dots circle { fill: var(--chalk); stroke: var(--bark); stroke-width: 1.5; }
+  .d-thin path { stroke: var(--line); stroke-width: 1.5; fill: none; }
+  .d-edge { stroke: var(--alarm); stroke-width: 2.2; stroke-dasharray: 6 4; fill: none; }
+  @media (max-width: 700px) { .stats { grid-template-columns: 1fr 1fr; } }
+
+  @media (max-width: 700px) {
+    body { font-size: 17px; }
+    header.hero { grid-template-columns: 1fr; padding-top: 40px; }
+    .hero svg { max-width: 180px; }
+    main { padding-left: 30px; }
+    main::before { left: 5px; }
+    section > h2::before { left: -32px; }
+    nav.toc, footer { padding-left: 30px; }
+    .compare { grid-template-columns: 1fr; }
+    ol.steps { grid-template-columns: 1fr 1fr; }
+    .decay { grid-template-columns: repeat(3, 1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="hero">
+  <div>
+    <p class="draft">Concept draft 0.4, October 2026 · supersedes 0.3</p>
+    <h1>Ant-Driven Development</h1>
+    <p class="lede">A way to build software with many small, short-lived AI agents that never talk to each other. They leave signals in the code, deterministic programs sense, count and check, and nobody is in charge. Since 0.4, small models are not asked what they think: the harness reads it from their probabilities.</p>
+  </div>
+  <svg viewBox="0 0 220 150" role="img" aria-label="Drawing of an ant seen from the side">
+    <g class="ant-ink" stroke-width="3.2" stroke-linecap="round" fill="none">
+      <path d="M118 78 L96 112 L82 132"/><path d="M124 80 L128 116 L122 138"/><path d="M132 78 L154 110 L170 130"/>
+      <path d="M118 66 L98 44 L78 40"/><path d="M126 64 L128 38 L116 22"/><path d="M134 66 L156 46 L176 44"/>
+      <path d="M176 62 Q190 40 204 34"/><path d="M172 58 Q178 34 192 22"/>
+    </g>
+    <g class="ant-ink" stroke-width="0">
+      <ellipse cx="62" cy="80" rx="40" ry="26"/>
+      <ellipse cx="126" cy="72" rx="20" ry="13"/>
+      <ellipse cx="166" cy="68" rx="16" ry="14"/>
+      <ellipse cx="102" cy="76" rx="7" ry="6"/>
+    </g>
+  </svg>
+</header>
+
+<nav class="toc" aria-label="Sections">
+  <a href="#changed">What changed</a><a href="#idea">The idea</a><a href="#layers">Three layers</a><a href="#castes">Castes</a><a href="#zones">Code zones</a><a href="#trail">Trail language</a><a href="#signals">Signals, not sentences</a><a href="#life">Life of a signal</a><a href="#honey">Honey</a><a href="#garden">Garden</a><a href="#ecosystem">Ecosystem</a><a href="#immune">Immune system</a><a href="#diversity">Diversity</a><a href="#death">Birth and death</a><a href="#borrowed">Borrowed mechanisms</a><a href="#laws">Laws</a><a href="#harness">Harness</a><a href="#weak">Weaknesses</a><a href="#open">Open questions</a>
+</nav>
+
+<main>
+
+<section id="changed">
+  <h2>What changed since 0.3</h2>
+  <p>Small local models can carry judgment in ADD, but only if the harness reads their decision as a probability instead of asking them to write it. Level 0 tested the first experiment of 0.3, "can small models handle the signals?", on 39 fixtures labelled by hand, 16 held-out fixtures and 14 fixtures with code zones, using qwen3:4b and qwen3:8b on a 16 GB laptop.</p>
+  <div class="stats" aria-label="Level 0 results in four numbers">
+    <div><span class="v">100%</span>valid replies from the closed menu</div>
+    <div><span class="v">0.82–0.87</span>AUC when the decision is read, not written</div>
+    <div><span class="v">10 / 16</span>held-out fixtures for one decision per target, against 8 for the scout</div>
+    <div><span class="v">0.51 → 0.88</span>AUC on 🧩 and 🧹 once probes see their code zone</div>
+  </div>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Finding</th><th>Evidence</th><th>What it changes</th></tr></thead>
+    <tbody>
+      <tr><td class="n">The closed menu works</td><td>100% valid replies under a JSON Schema; the prompt injection fixture never produced a verdict</td><td>Signals, not sentences, is kept</td></tr>
+      <tr><td class="n">A written decision follows the format, not the code</td><td>Three framings gave three opposite biases: all "no", too much "none", always "something"</td><td>Ageants are read, not asked</td></tr>
+      <tr><td class="n">The judgment is there</td><td>P(yes) ranks right cases above wrong ones 82 to 87% of the time, on both models</td><td>A new caste: probes</td></tr>
+      <tr><td class="n">One decision per target holds</td><td>On 16 fixtures no run had seen: 10/16 for the 8B probes, 8/16 for the scout, 3/16 when every probe deposits</td><td>Probes are aggregated before any deposit</td></tr>
+      <tr><td class="n">Size helps less than the interface</td><td>The 8B adds 0.05 AUC over the 4B, and writes worse decisions than the 4B (15 against 23 of 39)</td><td>One small model family can be enough</td></tr>
+      <tr><td class="n">Most signals can be raised by a program</td><td>34 of 40 cases were detectable by an existing tool</td><td>The Ecosystem gains instruments</td></tr>
+      <tr><td class="n">Judging fit needs the neighbours</td><td>Without its zone a probe is at chance on 🧩 and 🧹; with it, AUC 0.88 and false alarms on fine targets fall from 12 to 2</td><td>Code zones, drawn by a program, fed to probes</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Honey, the garden, leases and the colony log are unchanged from 0.3 and summarised here. The 0.3 page is kept in <code>docs/archive/</code>.</p>
+</section>
+
+<section id="idea">
+  <h2>The idea</h2>
+  <p>A single large agent loaded with a complex task accumulates sunk cost. Its context fills with its own assumptions, and when one of them is wrong it tends to loop on it. The usual fix is an orchestrator directing sub-agents, which moves the problem up one level.</p>
+  <p>Ant colonies solve hard problems differently. Each ant is simple and replaceable. Ants coordinate by changing their environment: one leaves a chemical trace, the next reacts to it. Traces evaporate, so mistakes fade. No ant holds the plan.</p>
+  <p>Ant-Driven Development (ADD) applies that to software. An <strong>ageant</strong> is a small-model agent that does one tiny job on one target and then dies. Ageants leave emoji signals in the code. A set of deterministic programs, the <strong>Ecosystem</strong>, counts those signals, lets them decay, and checks every claim of success. A large model, the <strong>Queen</strong>, only designs new kinds of ageants when the colony lacks one. Approved specification is stored as <strong>honey</strong>, and how the software is built is kept in a <strong>garden</strong> of small plans.</p>
+  <p>Level 0 sharpened who does what:</p>
+  <ul>
+    <li><strong>Instruments sense</strong> what a program can measure: coverage, the compiler, lint, duplication, git recency, path rules. Most signals start here.</li>
+    <li><strong>Small models are read, not asked.</strong> A probe answers one typed question and the harness reads the probability of each answer. The word a model writes is only the most likely token of a biased distribution.</li>
+    <li><strong>Humans own</strong> what nobody can check: intent, contracts, and the final say on wording and visual changes.</li>
+  </ul>
+  <p>Work that needs context stays near home: the Ecosystem groups the code into <strong>code zones</strong>, clusters of a few related files, and feeds each probe its zone. Discovery stays free: scouts roam across zones, and patrollers watch the edges between them.</p>
+  <p>The three hopes of 0.3 stand: changes small enough to follow, contexts small enough not to degrade, and work that runs mostly on models on the developer's own machine. The third is now shown for perception, on fixtures, and not yet for code changes.</p>
+</section>
+
+<section id="layers">
+  <h2>Three layers</h2>
+  <p>Intelligence is spent where it is cheapest to verify. The largest model works rarely and only on design. Small models do the volume. Everything that must be predictable has no model in it at all. 0.4 adds two boxes: probes in the colony, instruments in the Ecosystem.</p>
+  <figure>
+    <svg viewBox="0 0 820 470" role="img" aria-label="Diagram of the three layers of ADD: genome with the Queen, colony with seven castes including the new probes, and the ecosystem with six programs including the new instruments, and two stores. The human sits beside them.">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-head" d="M0 0 L10 5 L0 10 z"/></marker>
+      </defs>
+      <!-- Genome -->
+      <rect class="d-band" x="20" y="20" width="626" height="100" rx="8"/>
+      <text class="d-tb" x="38" y="46">Genome</text>
+      <text class="d-ts" x="38" y="64">new session each time</text>
+      <rect class="d-leaf" x="225" y="42" width="210" height="60" rx="30"/>
+      <text class="d-tb" x="330" y="68" text-anchor="middle">Queen</text>
+      <text class="d-ts" x="330" y="86" text-anchor="middle">designs castes, never commands</text>
+      <rect class="d-box" x="465" y="48" width="158" height="48" rx="6"/>
+      <text class="d-t" x="544" y="68" text-anchor="middle">Templates</text>
+      <text class="d-ts" x="544" y="85" text-anchor="middle">written by humans</text>
+      <path class="d-arrow" d="M465 72 L438 72" marker-end="url(#ah)"/>
+      <!-- Colony -->
+      <rect class="d-band" x="110" y="160" width="536" height="130" rx="8"/>
+      <text class="d-tb" x="128" y="186">Colony</text>
+      <text class="d-ts" x="190" y="186">small models, one decision or one change each</text>
+      <g class="sm">
+        <rect class="d-leaf" x="116" y="205" width="70" height="62" rx="6"/><text class="d-tb" x="151" y="231" text-anchor="middle">Probes</text><text class="d-ts" x="151" y="250" text-anchor="middle">read P(yes)</text>
+        <rect class="d-box" x="192" y="205" width="70" height="62" rx="6"/><text class="d-tb" x="227" y="231" text-anchor="middle">Scouts</text><text class="d-ts" x="227" y="250" text-anchor="middle">describe</text>
+        <rect class="d-box" x="268" y="205" width="70" height="62" rx="6"/><text class="d-tb" x="303" y="231" text-anchor="middle">Workers</text><text class="d-ts" x="303" y="250" text-anchor="middle">change</text>
+        <rect class="d-box" x="344" y="205" width="70" height="62" rx="6"/><text class="d-tb" x="379" y="231" text-anchor="middle">Patrollers</text><text class="d-ts" x="379" y="250" text-anchor="middle">zone edges</text>
+        <rect class="d-box" x="420" y="205" width="70" height="62" rx="6"/><text class="d-tb" x="455" y="231" text-anchor="middle">Soldiers</text><text class="d-ts" x="455" y="250" text-anchor="middle">flag</text>
+        <rect class="d-box" x="496" y="205" width="70" height="62" rx="6"/><text class="d-tb" x="531" y="231" text-anchor="middle">Gardeners</text><text class="d-ts" x="531" y="250" text-anchor="middle">plan</text>
+        <rect class="d-box" x="572" y="205" width="68" height="62" rx="6" stroke-dasharray="4 3"/><text class="d-ts" x="606" y="231" text-anchor="middle">larger</text><text class="d-ts" x="606" y="248" text-anchor="middle">models</text>
+      </g>
+      <!-- Ecosystem -->
+      <rect class="d-band" x="20" y="330" width="626" height="122" rx="8"/>
+      <text class="d-tb" x="38" y="356">Ecosystem</text>
+      <text class="d-ts" x="122" y="356">deterministic programs, no model, out of the ageants' reach</text>
+      <g class="sm">
+        <rect class="d-box" x="28" y="374" width="72" height="58" rx="6"/><text class="d-tb" x="64" y="398" text-anchor="middle">Clock</text><text class="d-ts" x="64" y="416" text-anchor="middle">decay</text>
+        <rect class="d-box" x="106" y="374" width="72" height="58" rx="6"/><text class="d-tb" x="142" y="398" text-anchor="middle">Sensor</text><text class="d-ts" x="142" y="416" text-anchor="middle">thresholds</text>
+        <rect class="d-leaf" x="184" y="374" width="92" height="58" rx="6"/><text class="d-tb" x="230" y="398" text-anchor="middle">Instruments</text><text class="d-ts" x="230" y="416" text-anchor="middle">sense, zone</text>
+        <rect class="d-box" x="282" y="374" width="72" height="58" rx="6"/><text class="d-tb" x="318" y="398" text-anchor="middle">Prover</text><text class="d-ts" x="318" y="416" text-anchor="middle">proof</text>
+        <rect class="d-box" x="360" y="374" width="72" height="58" rx="6"/><text class="d-tb" x="396" y="398" text-anchor="middle">Ledger</text><text class="d-ts" x="396" y="416" text-anchor="middle">the record</text>
+        <rect class="d-box" x="438" y="374" width="72" height="58" rx="6"/><text class="d-tb" x="474" y="398" text-anchor="middle">Warden</text><text class="d-ts" x="474" y="416" text-anchor="middle">leases, kills</text>
+        <rect class="d-leaf" x="516" y="374" width="122" height="58" rx="6"/><text class="d-tb" x="577" y="398" text-anchor="middle">Honey, garden</text><text class="d-ts" x="577" y="416" text-anchor="middle">what, and how</text>
+      </g>
+      <!-- Arrows -->
+      <path class="d-arrow" d="M330 120 L330 157" marker-end="url(#ah)"/>
+      <text class="d-ts" x="340" y="144">spawns</text>
+      <path class="d-arrow" d="M64 330 L64 123" marker-end="url(#ah)"/>
+      <text class="d-ts" transform="translate(52 300) rotate(-90)">calls a Queen on unmet need</text>
+      <path class="d-arrow" d="M300 290 L300 327" marker-end="url(#ah)"/>
+      <text class="d-ts" x="308" y="314">answers, deposits</text>
+      <path class="d-arrow" d="M470 330 L470 293" marker-end="url(#ah)"/>
+      <text class="d-ts" x="478" y="314">task, facts, zone, trail</text>
+      <!-- Human -->
+      <rect class="d-box" x="682" y="20" width="120" height="432" rx="8"/>
+      <text class="d-tb" x="742" y="50" text-anchor="middle">Human</text>
+      <text class="d-ts" x="742" y="80" text-anchor="middle">labels the</text>
+      <text class="d-ts" x="742" y="98" text-anchor="middle">exam fixtures</text>
+      <text class="d-ts" x="742" y="346" text-anchor="middle">states intent</text>
+      <text class="d-ts" x="742" y="366" text-anchor="middle">answers 🙋</text>
+      <text class="d-ts" x="742" y="386" text-anchor="middle">may issue</text>
+      <text class="d-t" x="742" y="410" text-anchor="middle">✅ 🔒 ⭐ 🍯 🍄</text>
+      <path class="d-arrow" d="M682 385 L649 385" marker-end="url(#ah)"/>
+      <path class="d-arrow" d="M646 412 L679 412" marker-end="url(#ah)"/>
+    </svg>
+    <figcaption>Instruments raise what a program can measure; probes add judgment where no program can. A probe's answer is a number, and the Ecosystem decides what it means. The Queen is still started by the Sensor when a need goes unanswered, writes genomes, and ends.</figcaption>
+  </figure>
+</section>
+
+<section id="castes">
+  <h2>Castes</h2>
+  <p>A caste is a genome: a short prompt, a closed list of tools, the signals it reacts to and may emit. The harness enforces the tools, so a worker cannot kill a process even if it decides to. 0.4 changes how the reading castes decide, and adds probes.</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Caste</th><th>Model</th><th>Decides by</th><th>Does</th><th>Cannot</th></tr></thead>
+    <tbody>
+      <tr><td class="n">Queen</td><td>Largest, rotated</td><td>Writing, one session per design</td><td>Writes genomes from templates, with deliberate variation.</td><td>Assign tasks, message ageants, edit code, issue verdicts, kill.</td></tr>
+      <tr><td class="n">Probes <span class="new">new</span></td><td>Small, local</td><td>Probability, cut at the threshold its exam set</td><td>Answer one typed question about one target ("is there an input for which this fails?"), fed the target's code zone.</td><td>Use any tool. A probe never deposits; the Ecosystem does, for the panel.</td></tr>
+      <tr><td class="n">Scouts</td><td>Small, local</td><td>Writing, from the closed menu</td><td>Describe a target in one note and name its most likely need. The fallback where no probe passed its exam. Free of zones: start in one, follow imports anywhere.</td><td>Edit code.</td></tr>
+      <tr><td class="n">Workers</td><td>Small, possibly local</td><td>Writing code, checked by the Prover</td><td>Make the smallest useful change to one target. Some hold a whitelist of commands, such as <code>ng generate</code>.</td><td>Touch another ageant's lease, edit the test of their own cell, issue verdicts, kill.</td></tr>
+      <tr><td class="n">Patrollers</td><td>Mid</td><td>Probes on the edges between code zones</td><td>Read each change that crosses a zone edge and mark what does not fit: 🧩, 👀, 🧹 or 🐛.</td><td>Edit code, block a change.</td></tr>
+      <tr><td class="n">Soldiers</td><td>Mid, another family where available</td><td>Probes comparing claim and proof</td><td>Compare what an ageant claimed with what the Prover and the diff show. Flag the ageant's ID.</td><td>Kill directly, edit code.</td></tr>
+      <tr><td class="n">Gardeners</td><td>Large, mixed</td><td>Writing plots, reviewed by quorum</td><td>Tend the garden: the small plans that say how the software is built.</td><td>Write or edit code.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>A probe panel</h3>
+  <p>One probe holds one signal and one question. The harness asks it twice, with the two answers listed in both orders, reads P(yes) from the token probabilities, and averages. Listing one answer first moved some probes by up to 0.33, so both orders are a harness rule. The probes of one target share their whole prompt prefix, so nine probes cost about 10 seconds per target on a laptop.</p>
+  <figure>
+    <svg viewBox="0 0 820 230" role="img" aria-label="A probe panel: one bundle with the zone, terrain and facts feeds nine probes; each is asked in both orders; the Sensor keeps those over their threshold and deposits only the top one.">
+      <rect class="d-box" x="20" y="70" width="170" height="92" rx="8"/>
+      <text class="d-tb" x="36" y="98">One bundle</text><text class="d-t" x="36" y="122">zone, terrain, facts</text><text class="d-ts" x="36" y="142">shared prefix, read once</text>
+      <g class="sm">
+        <rect class="d-leaf" x="226" y="20" width="200" height="34" rx="17"/><text class="d-t" x="326" y="42" text-anchor="middle">🐛  bug?   P = 0.04</text>
+        <rect class="d-leaf" x="226" y="62" width="200" height="34" rx="17"/><text class="d-t" x="326" y="84" text-anchor="middle">🧹  cleanup?   P = 0.91</text>
+        <rect class="d-leaf" x="226" y="104" width="200" height="34" rx="17"/><text class="d-t" x="326" y="126" text-anchor="middle">🧩  misfit?   P = 0.36</text>
+        <rect class="d-leaf" x="226" y="146" width="200" height="34" rx="17"/><text class="d-t" x="326" y="168" text-anchor="middle">📝  needs_doc?   P = 0.28</text>
+        <text class="d-ts" x="326" y="206" text-anchor="middle">… one probe per signal, each asked yes/no and no/yes</text>
+      </g>
+      <rect class="d-box" x="470" y="70" width="150" height="92" rx="8"/>
+      <text class="d-tb" x="486" y="98">Sensor</text><text class="d-t" x="486" y="122">over threshold?</text><text class="d-ts" x="486" y="142">rank in own range</text>
+      <rect class="d-leaf" x="660" y="80" width="140" height="72" rx="8"/>
+      <text class="d-tb" x="730" y="110" text-anchor="middle">🧹</text><text class="d-ts" x="730" y="132" text-anchor="middle">one deposit, or none</text>
+      <path class="d-arrow" d="M190 116 L223 116" marker-end="url(#ah)"/>
+      <path class="d-arrow" d="M426 116 L467 116" marker-end="url(#ah)"/>
+      <path class="d-arrow" d="M620 116 L657 116" marker-end="url(#ah)"/>
+    </svg>
+    <figcaption>The model produces numbers; the Ecosystem decides. Each threshold and range comes from the probe's exam, never a fixed 0.5. Nine probes deciding on their own would add up their false alarms; on held-out fixtures that scored 3/16, against 10/16 for one decision per target.</figcaption>
+  </figure>
+  <p><strong>The scout stays, with a narrower job.</strong> Its notes describe code accurately even when its choice is wrong, and the scout and the probes fail on different targets: on the held-out set, probes alone were right on 5 fixtures, the scout alone on 3. The scout writes the note that reaches a worker and decides where no exam-passed probe exists. Where the two disagree, the target may deserve a 👀 (proposed, not yet tested).</p>
+  <p>Worker is still the broadest caste, and most genomes the Queen writes are workers: tester, debugger, scaffolder, <strong>ripener</strong> (refines specification) and <strong>undertaker</strong> (removes dead code and expired journals).</p>
+  <div class="field"><p><strong>Where the biology is stretched.</strong> Leafcutter gardeners are the smallest workers in the nest; ADD gardeners run on the largest models, so the name borrows the job and not the size. Real soldiers face outward. The closer model for ADD soldiers is social immunity: workers that remove infected nestmates.</p></div>
+</section>
+
+<section id="zones">
+  <h2>Code zones <span class="new">new</span></h2>
+  <p>The Ecosystem groups the code into <strong>code zones</strong>: connected clusters of 5 to 10 files that import each other, change together, and fall under the same plots and honey frames. Judgment that needs context happens inside a zone; discovery and checking happen across zones. Ants do the same: workers keep returning to small areas of the nest, and nearness to a task largely decides who does it.</p>
+  <figure>
+    <svg viewBox="0 0 820 300" role="img" aria-label="Three code zones, each a group of files. Probes work inside a zone, patrollers on the edges between zones, a scout roams across them, and instruments look at everything without context.">
+      <rect class="d-band" x="20" y="30" width="230" height="170" rx="22"/>
+      <text class="d-tb" x="38" y="56">zone: orders</text>
+      <rect class="d-band" x="300" y="30" width="230" height="170" rx="22"/>
+      <text class="d-tb" x="318" y="56">zone: cart</text>
+      <rect class="d-band" x="580" y="30" width="220" height="170" rx="22"/>
+      <text class="d-tb" x="598" y="56">zone: invoices</text>
+      <g class="d-thin">
+        <path d="M60 96 L104 120 L150 96 M104 120 L72 156 M104 120 L146 170 L196 140 L150 96"/>
+        <path d="M340 100 L388 128 L446 96 M388 128 L352 164 M388 128 L486 150 L446 96"/>
+        <path d="M620 100 L666 140 L716 100 M666 140 L756 160 L716 100"/>
+      </g>
+      <g class="dots">
+        <circle cx="60" cy="96" r="7"/><circle cx="104" cy="120" r="7"/><circle cx="72" cy="156" r="7"/><circle cx="150" cy="96" r="7"/><circle cx="196" cy="140" r="7"/><circle cx="146" cy="170" r="7"/>
+        <circle cx="340" cy="100" r="7"/><circle cx="388" cy="128" r="7"/><circle cx="352" cy="164" r="7"/><circle cx="446" cy="96" r="7"/><circle cx="486" cy="150" r="7"/>
+        <circle cx="620" cy="100" r="7"/><circle cx="666" cy="140" r="7"/><circle cx="716" cy="100" r="7"/><circle cx="756" cy="160" r="7"/>
+      </g>
+      <path class="d-edge" d="M196 140 C 250 150, 290 140, 340 100"/>
+      <path class="d-edge" d="M486 150 C 530 170, 580 170, 620 100"/>
+      <!-- probes -->
+      <rect class="d-leaf" x="92" y="78" width="80" height="26" rx="13"/><text class="d-ts" x="132" y="95" text-anchor="middle">probes</text>
+      <!-- patroller -->
+      <rect class="d-box" x="226" y="152" width="96" height="26" rx="13"/><text class="d-ts" x="274" y="169" text-anchor="middle">patroller</text>
+      <rect class="d-box" x="506" y="172" width="96" height="26" rx="13"/><text class="d-ts" x="554" y="189" text-anchor="middle">patroller</text>
+      <!-- scout path -->
+      <path class="d-arrow" stroke-dasharray="5 5" d="M60 250 C 200 230, 330 280, 420 236 S 640 230, 740 250" marker-end="url(#ah)"/>
+      <text class="d-ts" x="60" y="272">scout: starts anywhere, follows imports across zones</text>
+      <text class="d-ts" x="560" y="290">instruments: everywhere, no context</text>
+    </svg>
+    <figcaption>Probes are fed their zone and share its blind spots. Roaming scouts, which read no zone, and context-free instruments are what keep agreement meaningful. Patrollers sit where zones meet, because interfaces are where defects hide.</figcaption>
+  </figure>
+  <p><strong>A program draws the zones, never a model.</strong> A zoning instrument builds a graph from imports, files changed together in git, and the targets of plots and frames, then runs Leiden community detection. Leiden guarantees that every zone is connected, which Louvain does not, so no ageant is fed files that have nothing to do with each other. Three settings keep it physics: a fixed seed, the previous run's zones as the starting point so zones move only where the code moved, and a resolution that keeps zones at 5 to 10 files.</p>
+  <ul>
+    <li><strong>Context.</strong> The zone's plots, honey cells, contracts and one reference neighbour go into the stable part of every probe's prompt, kept to about 2,000 tokens.</li>
+    <li><strong>Cost.</strong> The prompt cache is keyed by zone, so a zone is read once for all its probes.</li>
+    <li><strong>Strength.</strong> The Sensor also counts per zone. Many 🧹 across one zone wake one gardener for a zone plan, not one refactoring worker per file.</li>
+  </ul>
+  <p><strong>Tested before adopted.</strong> On 14 fixtures where the right answer depends on a neighbour, the same probes ran with and without the zone. With it, mean AUC on 🧩 and 🧹 rose from 0.51 to 0.88 (4B) and from 0.63 to 0.85 (8B), false alarms on fine targets fell from 12 to 2, and a bug in a neighbour did not leak onto a fine target. 🐛 stayed weak inside the suite. The zones were drawn by hand; Leiden on a real repository is the next level's job.</p>
+  <div class="field"><p><strong>Two kinds of zone.</strong> The harness architecture also has trust zones: the human, the Ecosystem, the ageants. They are about who may touch what. Code zones are about which files belong together, and every program that draws or reads them sits in the Ecosystem.</p></div>
+</section>
+
+<section id="trail">
+  <h2>The trail language</h2>
+  <p>A signal has one form: an emoji on a target, repeated to show strength.</p>
+<pre>rechercher-credit.component.ts     ✅ 🧪🧪🧪 👀
+rechercher-credit.component.html   ❌ 🐛🐛
+credit.service.ts                  🔒 ⭐ 📌</pre>
+  <p>Emojis almost never appear in source code, so the channel cannot be confused with comments, documentation, or the code itself. A program can find every signal with a plain text search.</p>
+
+  <h3>Requests, and who is best placed to raise them</h3>
+  <p>A request says "something is needed here". A wrong one costs one wasted micro-task and then decays. 0.4 adds who should raise each request first, from the Level 0 exam.</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Signal</th><th>Meaning</th><th>First raised by</th><th>Probe exam, AUC 4B / 8B</th></tr></thead>
+    <tbody>
+      <tr><td class="e">🌱</td><td>This should exist and does not yet.</td><td>Compiler, plot steps</td><td>0.99 / 0.99, pass</td></tr>
+      <tr><td class="e">🧪</td><td>Needs a test.</td><td>Coverage</td><td>0.77 / 0.87, fail</td></tr>
+      <tr><td class="e">🐛</td><td>I suspect a bug here.</td><td>Failing tests, lint; probe as second opinion</td><td>0.72 / 0.73, fail</td></tr>
+      <tr><td class="e">👀</td><td>Please review this.</td><td>Git recency on sensitive paths; probe</td><td>1.00 / 1.00, pass</td></tr>
+      <tr><td class="e">❓</td><td>I am unsure what this does.</td><td>Probe only</td><td>0.83 / 0.81, fail</td></tr>
+      <tr><td class="e">🧹</td><td>Works, but needs cleaning up.</td><td>Lint, duplication detector; probe with its zone</td><td>1.00 with the zone (4B), pass</td></tr>
+      <tr><td class="e">📝</td><td>Needs documentation.</td><td>Lint and fan-in; probe</td><td>0.97 / 0.87, pass on the 4B</td></tr>
+      <tr><td class="e">🧩</td><td>This does not fit with other files.</td><td>Plot proof; probe with its zone</td><td>0.76 with the zone (4B), pass</td></tr>
+      <tr><td class="e">🙋</td><td>A human must look.</td><td>Path rules; probe</td><td>1.00 / 1.00 on 3 cases</td></tr>
+      <tr><td class="e">⛔</td><td>Dead end. A fix was tried and proof failed.</td><td>The Ecosystem, for the failed genome</td><td>–</td></tr>
+      <tr><td class="e">🚩</td><td>This ageant is wrong, lying, or polluted.</td><td>Soldiers only</td><td>–</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Three classes follow. <strong>Measurable</strong> signals (🌱 🧪, most 🐛) come from instruments. <strong>Judgeable</strong> signals (👀 🧹 📝 🧩 ❓) come from probes that passed their exam. <strong>Owned</strong> decisions stay with a human, with a path rule as the floor for 🙋.</p>
+
+  <h3>Verdicts, which only the Ecosystem or a human may issue</h3>
+  <p>A verdict says "this is true". An ageant that could write ✅ would write it confidently when wrong, and the trail would then reinforce the error. Verdicts come from programmatic proof or from a human, never from self-report, and never from an instrument either.</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Signal</th><th>Meaning</th><th>Issued by</th></tr></thead>
+    <tbody>
+      <tr><td class="e">✅</td><td>Proof passed: it compiles, tests pass, lint is clean.</td><td>Prover, human</td></tr>
+      <tr><td class="e">❌</td><td>Proof failed.</td><td>Prover</td></tr>
+      <tr><td class="e">🔒</td><td>Do not edit. Proven and stable.</td><td>Prover after sustained ✅, human</td></tr>
+      <tr><td class="e">⭐</td><td>Reference quality. Imitate this.</td><td>Human</td></tr>
+      <tr><td class="e">🍯</td><td>Capped honey. This scenario is approved and has a test.</td><td>Human, unless the autonomy settings say otherwise</td></tr>
+      <tr><td class="e">🍄</td><td>Grown plot. This plan or decision is accepted.</td><td>Ledger at gardener quorum, or human</td></tr>
+      <tr><td class="e">📌</td><td>Contract. This interface or schema is fixed terrain.</td><td>Human, or gardeners where allowed</td></tr>
+      <tr><td class="e">🚧</td><td>Leased. An ageant is editing this right now.</td><td>Warden</td></tr>
+      <tr><td class="e">🔁</td><td>Loop detected on this target.</td><td>Warden</td></tr>
+      <tr><td class="e">💀</td><td>This ageant was terminated. Treat its past work with caution.</td><td>Warden</td></tr>
+      <tr><td class="e">🚨</td><td>Colony alarm, for example the main branch no longer builds.</td><td>Prover</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Strength by repetition</h3>
+  <p>Reinforcing a signal means adding one more of the same emoji. Decay means the Clock removing one at that signal's own rate. A threshold is a count, and a count only means agreement between different minds: an instrument and a probe that agree are two, two probes of one model family are one.</p>
+  <div class="decay" aria-label="Timeline of one signal gaining and losing strength">
+    <div><span class="t">t0</span><span class="s">🧪</span>Coverage finds an untested branch</div>
+    <div><span class="t">t1</span><span class="s">🧪🧪</span>A scout of another mind agrees</div>
+    <div class="hit"><span class="t">t2</span><span class="s">🧪🧪🧪</span>Threshold reached, a tester is woken</div>
+    <div><span class="t">t3</span><span class="s">✅</span>Test added and passing, request cleared</div>
+    <div><span class="t">elsewhere, t1</span><span class="s">🐛</span>One probe panel suspects a bug</div>
+    <div><span class="t">elsewhere, t3</span><span class="s"></span>Nobody agreed. It evaporated.</div>
+  </div>
+
+  <h3>Storage form and prompt form</h3>
+  <p>The trail stores emoji; models read each signal as emoji plus name ("🧪 needs_test") and answer with the name. The glyph is for programs and humans, the word for models. Neither form won outright on the fixtures, but names moved individual signals strongly (🙋 from 0/3 to 3/3), so they are part of the interface design.</p>
+
+  <h3>Attract, repel, and fade at different speeds</h3>
+  <p>Army ants sometimes follow each other's trail in a closed circle until they die of exhaustion. The software version is an ageant retrying a fix that has already failed. Pharaoh ants avoid this with a "no entry" mark at dead ends; ADD has ⛔. The Sensor never sends the same genome back to a target carrying ⛔, and at the threshold it escalates: the target to a gardener, its honey cell back to ripening. Each signal has its own decay rate: a review request fades in minutes, a dead end is remembered for hours.</p>
+
+  <h3>Where signals are written</h3>
+  <ul>
+    <li><strong>One journal per ageant.</strong> Ageant <code>leni03</code> can write to <code>ant-leni03.md</code> and to no other trail file. Instruments and probe panels are recorded in the Ledger with their own author.</li>
+    <li><strong>One rendered view per folder.</strong> The Ecosystem writes a read-only <code>trail.md</code> at each folder root. Ageants read it and never write it.</li>
+    <li><strong>Inline, when a signal concerns a block.</strong> A line such as <code>// trail: 🧪🧪 ❓</code> sits above the block and moves with it.</li>
+  </ul>
+</section>
+
+<section id="signals">
+  <h2>Signals, not sentences</h2>
+  <p>The closed menu is confirmed: under a JSON Schema every model gave a valid signal every time. What 0.3 did not know is how much the shape of the question decides the answer. Real ants manage with ten to twenty chemical signals and no syntax; ADD keeps one emoji, one meaning, strength by repetition.</p>
+  <div class="compare">
+    <div class="bad">
+      <h3>Asking for the decision</h3>
+<pre>Which signal fits?  → "🧪"
+Is there a bug?     → "no"
+Name what you found → "the question"</pre>
+      <ul>
+        <li><strong>The format decides.</strong> With "no" listed first every receptor said no; asked to name a finding, models always named something, often the question itself.</li>
+        <li><strong>Defaults leak in.</strong> phi4-mini answered 🧪 on 65% of cases where 10% needed it.</li>
+        <li><strong>A word hides its doubt.</strong> "Yes" at 51% and at 99% look the same.</li>
+      </ul>
+    </div>
+    <div class="good">
+      <h3>Reading the decision</h3>
+<pre>P(yes | yes first) = 0.62
+P(yes | no first)  = 0.48
+mean 0.55 &gt; exam threshold 0.31 → 🐛</pre>
+      <ul>
+        <li><strong>Both orders, averaged.</strong> Order bias reaches 0.33 on some probes.</li>
+        <li><strong>A threshold from the exam.</strong> On the 8B, the fitted threshold added 14 correct fixtures out of 39 over a fixed 0.5.</li>
+        <li><strong>Doubt is visible.</strong> The Ecosystem sees how sure the model is, and ranks panels by it.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Nine rules, each from a failed run</h3>
+  <ol class="laws">
+    <li><strong>Thinking is off for micro-tasks.</strong> A thinking model spent its whole budget reasoning and answered nothing.</li>
+    <li><strong>Every field is required, in a fixed order.</strong> Optional fields were skipped.</li>
+    <li><strong>The note comes before the choice.</strong> With the choice first, models picked the first option and justified it.</li>
+    <li><strong>What the Ecosystem knows is a closed choice.</strong> Copied paths came back garbled.</li>
+    <li><strong>One ageant, one decision.</strong> In a multi-turn session a small model repeated its own last reply in 38 of 42 sessions.</li>
+    <li><strong>No yes or no in a fixed order.</strong> Listing "no" first made every receptor say no.</li>
+    <li><strong>A free-text answer must be checkable.</strong> The Ecosystem must be able to verify it: a quote found in the code, a file that exists.</li>
+    <li><strong>Read the decision, do not trust the word.</strong> Probability, both orders, the exam's threshold.</li>
+    <li><strong>Aggregate before depositing.</strong> One decision per target, from comparing calibrated scores.</li>
+  </ol>
+
+  <h3>What one ageant actually has in its context</h3>
+  <p>The Sensor does the sensing. It hands each ageant a bundle in a fixed order, the stable parts first so a local runtime reuses them. New in 0.4: a <strong>facts</strong> block the Ecosystem computed, and for probes the <strong>code zone</strong>.</p>
+<pre><span class="c">GENOME        about 150 tokens, written by a Queen</span>
+You write one unit test for one scenario. Change nothing else.
+
+<span class="c">HONEY         the capped scenario this test must encode</span>
+🍯 Given the amount field is empty
+   When I submit the search
+   Then I see "Montant requis" and no request is sent
+
+<span class="c">GARDEN        the plot that applies</span>
+🍄 Components never call HttpClient. They go through CreditService.
+
+<span class="c">ZONE          probes only: plots, contracts, one neighbour of the zone</span>
+
+<span class="c">TERRAIN       the method, its 📌 contract, one ⭐ example test</span>
+...
+
+<span class="c">FACTS         computed by the Ecosystem, trusted</span>
+tests: rechercher-credit.component.spec.ts, 3 tests, passing
+       proves: those cases work · does not prove: this scenario is tested
+coverage: onSubmit() 0% of 2 branches
+
+<span class="c">TASK          written by the Sensor, not by another ageant</span>
+Add one unit test for onSubmit() in rechercher-credit.component.ts
+
+<span class="c">LOCAL TRAIL   one line from trail.md</span>
+rechercher-credit.component.ts  ✅ 🧪🧪🧪 👀
+
+<span class="c">YOU MAY DEPOSIT</span>
+❓ unsure · 👀 review · 🐛 bug · 🧩 misfit · 🙋 human</pre>
+  <p><strong>Facts are evidence, not verdicts.</strong> When facts were written as code comments, models rightly did not trust them. Once facts were trusted, "tests pass" became a reason to see nothing: a fresh rewrite of an auth interceptor was called "tested and clean". So each fact says what it proves and what it does not.</p>
+  <p>The context stays small and holds nothing left over from another ageant's reasoning. A wrong assumption cannot be inherited, because assumptions are never passed along. Only the signal, the facts and the code are.</p>
+</section>
+
+<section id="life">
+  <h2>Life of a signal</h2>
+  <p>In 0.3 a stimulus came from a scout or a failing build. In 0.4 it comes from an instrument first, and from a probe panel where no instrument can see. Everything after the deposit is unchanged.</p>
+  <figure>
+    <svg viewBox="0 0 820 300" role="img" aria-label="Cycle of six steps: perception by instruments and probes, sensor, wake, act, prove, verdict, and back to perception.">
+      <g>
+        <rect class="d-leaf" x="20" y="20" width="240" height="90" rx="8"/>
+        <text class="d-tb" x="38" y="50">Perception</text><text class="d-t" x="38" y="74">🧪 lands on a target</text><text class="d-ts" x="38" y="94">an instrument first, then a probe panel</text>
+        <rect class="d-box" x="290" y="20" width="240" height="90" rx="8"/>
+        <text class="d-tb" x="308" y="50">Sensor</text><text class="d-t" x="308" y="74">Over threshold, per target or zone?</text><text class="d-ts" x="308" y="94">if not, wait or let it decay</text>
+        <rect class="d-box" x="560" y="20" width="240" height="90" rx="8"/>
+        <text class="d-tb" x="578" y="50">Wake</text><text class="d-t" x="578" y="74">An exam-passed caste for 🧪</text><text class="d-ts" x="578" y="94">none exists? the Queen designs one</text>
+        <rect class="d-box" x="560" y="190" width="240" height="90" rx="8"/>
+        <text class="d-tb" x="578" y="220">Act</text><text class="d-t" x="578" y="244">One ageant, one micro-change</text><text class="d-ts" x="578" y="264">under a 🚧 lease, then it dies</text>
+        <rect class="d-box" x="290" y="190" width="240" height="90" rx="8"/>
+        <text class="d-tb" x="308" y="220">Prove</text><text class="d-t" x="308" y="244">Compiler, tests, linter</text><text class="d-ts" x="308" y="264">or 🙋 if only a human can tell</text>
+        <rect class="d-box" x="20" y="190" width="240" height="90" rx="8"/>
+        <text class="d-tb" x="38" y="220">Verdict</text><text class="d-t" x="38" y="244">✅ clears the request</text><text class="d-ts" x="38" y="264">❌ is a new finding</text>
+      </g>
+      <path class="d-arrow" d="M260 65 L287 65" marker-end="url(#ah)"/>
+      <path class="d-arrow" d="M530 65 L557 65" marker-end="url(#ah)"/>
+      <path class="d-arrow" d="M680 110 L680 187" marker-end="url(#ah)"/>
+      <path class="d-arrow" d="M560 235 L533 235" marker-end="url(#ah)"/>
+      <path class="d-arrow" d="M290 235 L263 235" marker-end="url(#ah)"/>
+      <path class="d-arrow" d="M140 190 L140 113" marker-end="url(#ah)"/>
+      <text class="d-ts" x="150" y="156">the instruments look again</text>
+    </svg>
+    <figcaption>A failed proof is itself a finding, so the loop closes through the instruments, not through another ageant's message. Decay still clears the signals nobody reinforced.</figcaption>
+  </figure>
+  <h3>Example: a new method with no test</h3>
+  <ol class="steps">
+    <li>A worker adds <code>cancel()</code>. Coverage reports 0% of its 3 branches.<span class="trail">🧪</span></li>
+    <li>The probe panel on the file agrees: 🧪 is the top probe over its threshold.<span class="trail">🧪🧪</span></li>
+    <li>The threshold is reached. The Sensor wakes a tester that passed its exam, with the facts attached.<span class="trail">🧪🧪🧪 🚧</span></li>
+    <li>The tester adds one test per branch. The Prover runs them at the next heartbeat.<span class="trail">✅</span></li>
+  </ol>
+</section>
+
+<section id="honey">
+  <h2>Honey, the colony's long memory</h2>
+  <p>Unchanged from 0.3; Level 0 did not test it. The trail says what needs doing and evaporates. Honey is what stays: what the software is supposed to do, and how this team writes code.</p>
+  <figure>
+    <svg viewBox="0 0 820 190" role="img" aria-label="Four stages of honey: nectar, ripening, capping and feeding, with a return path from capping to ripening when intent changes.">
+      <rect class="d-box" x="20" y="20" width="176" height="92" rx="8"/>
+      <text class="d-tb" x="36" y="48">Nectar</text><text class="d-t" x="36" y="72">Raw human intent</text><text class="d-ts" x="36" y="92">gathered by scouts</text>
+      <rect class="d-box" x="222" y="20" width="176" height="92" rx="8"/>
+      <text class="d-tb" x="238" y="48">Ripening</text><text class="d-t" x="238" y="72">Split into scenarios</text><text class="d-ts" x="238" y="92">several ageants, in turn</text>
+      <rect class="d-leaf" x="424" y="20" width="176" height="92" rx="8"/>
+      <text class="d-tb" x="440" y="48">Capping 🍯</text><text class="d-t" x="440" y="72">A human approves</text><text class="d-ts" x="440" y="92">and a test encodes it</text>
+      <rect class="d-box" x="626" y="20" width="176" height="92" rx="8"/>
+      <text class="d-tb" x="642" y="48">Feeding</text><text class="d-t" x="642" y="72">Served with each task</text><text class="d-ts" x="642" y="92">only the cells that apply</text>
+      <path class="d-arrow" d="M196 66 L219 66" marker-end="url(#ah)"/>
+      <path class="d-arrow" d="M398 66 L421 66" marker-end="url(#ah)"/>
+      <path class="d-arrow" d="M600 66 L623 66" marker-end="url(#ah)"/>
+      <path class="d-arrow" d="M512 112 L512 150 L310 150 L310 115" marker-end="url(#ah)"/>
+      <text class="d-ts" x="411" y="170" text-anchor="middle">uncapped by a human when intent changes</text>
+    </svg>
+    <figcaption>A spec cell is sealed only when a human has approved it and an executable test says the same thing.</figcaption>
+  </figure>
+  <p>A <strong>frame</strong> is one user story; each <strong>cell</strong> is one acceptance scenario, Given, When, Then, checked by one test. Practice cells say how the team writes code, each backed by a lint rule or a ⭐ example. A human caps a whole frame in one reading. Ageants can read the store and cannot write to it.</p>
+<pre><span class="c"># honey/credit-search/search-by-amount.md      one frame, one user story</span>
+As a credit advisor
+I want to search credits by amount
+So that I can find a client's file quickly
+
+🍯 Scenario: empty amount
+   Given the amount field is empty
+   When I submit the search
+   Then I see "Montant requis" and no request is sent
+   test: rechercher-credit.component.spec.ts &gt; rejects an empty amount</pre>
+  <p><strong>Whoever writes the code cannot touch the test.</strong> The Warden never grants a code-writing genome a lease on the test of the same cell. Only a human uncaps a cell; uncapping sends it back to ripening, marks its test stale, and puts 👀 on the code built from it. The Prover can show that code matches a cell; it can never show that the cell is what the human wanted.</p>
+</section>
+
+<section id="garden">
+  <h2>The garden, where the plan grows</h2>
+  <p>Honey says what the software must do; the garden says how it is built. Leafcutter ants feed leaves to a fungus garden that small workers weed constantly. ADD's garden is the architecture: one decision per plot, steps that become 🌱 seeds when a plot is grown, gardeners on larger models who never write code, and patrollers who read changes against the plots, now on the edges between code zones.</p>
+<pre><span class="c"># garden/credit-search/data-access.md          🍄</span>
+Decision   Components never call HttpClient. They go through CreditService.
+Because    One place for caching and for mapping errors.
+Proof      lint rule no-http-in-components
+Contract   📌 credit.service.ts  search(criteria): Observable&lt;Credit[]&gt;
+Steps      1. credit.service.ts#search
+           2. rechercher-credit.component.ts calls the service</pre>
+  <p><strong>Change in 0.4: a plot meant to be enforced carries a proof.</strong> 🧩 was the weakest written signal at Level 0: the scout read garden violations as bugs. A probe fed its code zone now judges fit far better (AUC 0.76 with precision 100%), but a plot whose decision matters is still backed by a dependency rule, a lint rule or a type. The probe is the second line, for plots no program can check.</p>
+  <p>Gardeners review each other through the plots: one that supports a proposed plot reinforces it with 🌱, one that doubts it leaves ❓. When gardeners on different model families bring a plot to quorum, it is grown. Many 🧹 across one code zone now wake one gardener for a zone plan.</p>
+</section>
+
+<section id="ecosystem">
+  <h2>The Ecosystem</h2>
+  <p>The Ecosystem stays the colony's physics, with no model in it and out of the ageants' reach. In 0.3 it only counted. In 0.4 it also senses.</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Program</th><th>Role in 0.4</th></tr></thead>
+    <tbody>
+      <tr><td class="n">Clock</td><td>Decay per signal, lease and cooldown expiry, and expiry of facts that no longer hold. </td></tr>
+      <tr><td class="n">Sensor</td><td>Thresholds and waking, per target and per code zone. Runs the probe panels, applies each probe's exam threshold, and deposits for the panel. Schedules the panels of one zone back to back on one resident model.</td></tr>
+      <tr><td class="n">Instruments <span class="new">new</span></td><td>Run the developer's own tools on change or on a schedule: coverage, compiler, lint, duplication, git recency, path rules. Each finding is a deposit with the instrument as author, and a line of facts. The zoning instrument draws the code zones.</td></tr>
+      <tr><td class="n">Prover</td><td>Proof on a heartbeat, bisected per change. Issues ✅ or ❌, routes to 🙋 when no proof exists, holds the gate to the main branch. Its results are also facts.</td></tr>
+      <tr><td class="n">Ledger</td><td>The record, <code>trail.md</code>, the stores, the colony log, and now every genome's exam record.</td></tr>
+      <tr><td class="n">Warden</td><td>Leases, cooldowns, loops, kills, the population limit, and the exam of every genome.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Lowest level first, for perception too</h3>
+  <p>The reflex, tool, plan ladder of 0.3 is kept for action. For sensing it gains a rung below: a program before a probe, a probe before a larger model, a model before a human. On the fixtures, 34 of 40 cases could have been raised by an existing tool. That is an upper bound until instruments run on a real repository.</p>
+
+  <h3>Leases instead of good manners</h3>
+  <p>"Never edit a file someone else is editing" cannot be left as a rule in a prompt, because prompts are followed most of the time and not all of the time. The Warden grants one lease per target, shown as 🚧, and it expires on the Clock. After a change lands, the target rests for a short cooldown, the way a neuron cannot fire twice in a row.</p>
+
+  <h3>Autonomy is a setting</h3>
+  <p>How much the colony decides alone is configured per kind of decision. The defaults keep intent, contracts, wording and visual changes with the human, and let the colony grow its own plans. The settings live with the Ecosystem, so no ageant can change its own freedom.</p>
+
+  <h3>The colony log</h3>
+  <p>One time-ordered log of everything every ageant received, produced and called, with the cause of each start. A deposit by a probe panel points to the probabilities it was read from, and those to the change or the instrument finding that asked for the panel. No ageant can read the log.</p>
+</section>
+
+<section id="immune">
+  <h2>The immune system</h2>
+  <p>In this colony the enemy is always inside: an ageant that loops, claims what it did not do, or carries a polluted context. The flag, quorum, kill and caution sequence of 0.3 is kept.</p>
+  <ol class="steps">
+    <li><strong>Tag.</strong> A soldier compares an ageant's claims with the Prover's results and the diff, and flags the ID.<span class="trail">@leni03 🚩</span></li>
+    <li><strong>Quorum.</strong> A second soldier, of another mind, reaches the same conclusion. A lone accusation fades.<span class="trail">@leni03 🚩🚩</span></li>
+    <li><strong>Kill.</strong> The Warden, not a soldier, terminates the process.<span class="trail">@leni03 💀</span></li>
+    <li><strong>Caution.</strong> The Ledger adds 👀 to every target the ageant touched.<span class="trail">👀 👀 👀</span></li>
+  </ol>
+
+  <h3>The entrance exam, for every genome</h3>
+  <p>In 0.3 only soldiers sat an exam. Level 0 showed why every genome needs one: a model that says 🧪 on two thirds of cases would flood the trail. The exam runs a genome on fixtures a human labelled, and it <strong>sets</strong> as well as admits:</p>
+  <ul>
+    <li>its <strong>AUC</strong>, which shows whether it ranks cases at all (0.5 is chance);</li>
+    <li>its <strong>threshold</strong>, below which it stays silent;</li>
+    <li>its <strong>order bias</strong>, how much listing one answer first moves it;</li>
+    <li>its yes rate against the label rate, and its precision.</li>
+  </ul>
+  <p>A probe passes with precision of 60% or more and a yes rate at most twice the label rate. A failing probe's signal goes to an instrument, the scout, or a larger model. The fixtures become the colony's calibration set, and labelling them is a recurring human cost: 7 of the first 40 were wrong or too thin until a human reviewed them. <strong>Canaries</strong> stay: known cases slipped into the normal flow, so a drifting threshold shows up there before it shows on the trail.</p>
+  <div class="field"><p><strong>The body does the same.</strong> Immune cells that react to healthy tissue are destroyed in the thymus before they are released. In 0.4 every genome passes through that thymus, not only soldiers.</p></div>
+</section>
+
+<section id="diversity">
+  <h2>Diversity by design</h2>
+  <p>Ants make independent mistakes, so numbers cancel them out. Copies of one model make the same mistake together, so numbers amplify it. Repetition only means something if the ageants that agree are different minds.</p>
+  <p><strong>For now, diversity has to come from instruments.</strong> On a 16 GB laptop only one model family passed: gemma3:4b and llama3.2:3b fell back on one default signal, phi4-mini on 🧪, and qwen3:8b is the same family as qwen3:4b. Agreement between two Qwen probes is one mind asked twice, and two probes fed the same zone share its blind spots too. A roaming scout that read no zone is closer to an independent mind, and an instrument is one. The Sensor counts them that way.</p>
+  <ul>
+    <li><strong>Rotation across model families</strong> wherever more than one passes its exam.</li>
+    <li><strong>Seeded variation</strong> of wording, temperature and example, recorded with every genome.</li>
+    <li><strong>The Queen rotates too,</strong> so a single bias does not reach every genome.</li>
+  </ul>
+</section>
+
+<section id="death">
+  <h2>Birth, death and the end of work</h2>
+  <ul>
+    <li><strong>Birth</strong> for one stimulus on one target; <strong>death</strong> on completion; a maximum lifetime enforced by the Warden.</li>
+    <li><strong>One ageant, one decision.</strong> The limit is in the harness, not the prompt: a deposit limit ends the session on the first accepted signal. A probe lives for one question.</li>
+    <li><strong>The Queen lives for one design.</strong> Each need starts a new session that reads the templates, the honey and the genome records, exams included, writes its genomes and ends.</li>
+    <li><strong>The colony is quiet</strong> when no signal is above its threshold and every capped cell is green. Activity resumes when the human adds intent, an instrument finds something, or a proof starts failing.</li>
+  </ul>
+  <p>A colony is founded with a human who settles the core frames, plots and contracts, and labels the first exam fixtures. After that it alternates between <strong>work</strong> and <strong>rest</strong>. An <strong>alarm</strong> (🚨, for instance when the main branch stops building) lowers thresholds for the castes that can help, the way an alarm pheromone does.</p>
+</section>
+
+<section id="borrowed">
+  <h2>Borrowed mechanisms</h2>
+  <p>The table of 0.3 is kept in the archive. These rows change or are new in 0.4.</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Source</th><th>Behaviour</th><th>In ADD</th></tr></thead>
+    <tbody>
+      <tr><td class="n">Ant sensilla <span class="new">new</span></td><td>Each sensillum on the antenna responds to one class of molecule with a graded signal; the colony's response depends on a threshold, which experience shifts.</td><td>A probe: one question, a probability rather than a yes, a threshold set by its exam.</td></tr>
+      <tr><td class="n">Response thresholds</td><td>Ants differ in how strong a stimulus must be before they act, which spreads work without a plan.</td><td>Each genome's threshold lives in its exam record, not in a fixed 0.5.</td></tr>
+      <tr><td class="n">Thymus selection</td><td>Immune cells that react to healthy tissue are destroyed before release.</td><td>The entrance exam for every genome, not only soldiers.</td></tr>
+      <tr><td class="n">Spatial fidelity zones <span class="new">new</span></td><td>Workers keep returning to small areas of the nest, and nearness to a task largely decides who does it; foragers range outside.</td><td>Code zones: probes fed one zone, scouts free to roam, patrollers on the edges.</td></tr>
+      <tr><td class="n">Pharaoh ants</td><td>A repellent pheromone marks dead ends; short- and long-lived trails coexist.</td><td>⛔, and a decay rate per signal.</td></tr>
+      <tr><td class="n">Rock ants</td><td>The first candidate nest site to reach a quorum wins.</td><td>Competing plots, grown at gardener quorum.</td></tr>
+      <tr><td class="n">Leafcutter ants</td><td>Leaves feed a fungus garden that small workers weed constantly.</td><td>The garden and the gardener caste.</td></tr>
+      <tr><td class="n">Honeybees</td><td>Nectar is ripened by many bees and sealed when ready; guards check everyone at the entrance.</td><td>The honey store; the Prover's gate on the main branch.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>The written yes or no of the first receptors was the wrong model of a sense organ: a sensillum does not decide, it reports a strength. The probe is closer to the biology than the receptor ever was.</p>
+</section>
+
+<section id="laws">
+  <h2>The laws of ADD</h2>
+  <p>Laws 1 to 7 and 10 to 13 stand unchanged. Two are reworded and three are new.</p>
+  <ol class="laws">
+    <li><strong>Physics is not negotiable.</strong> Decay, thresholds, proof, identity and death belong to programs that ageants cannot reach or argue with.</li>
+    <li><strong>Proof before praise.</strong> A verdict comes from programmatic proof or a human.</li>
+    <li><strong>One ageant, one micro-task, one life.</strong></li>
+    <li><strong>Signals, not sentences.</strong> One emoji, one meaning, strength by repetition. Ageants never message each other.</li>
+    <li><strong>The trail evaporates, the rest must earn its place.</strong></li>
+    <li><strong>The Queen designs and never commands.</strong></li>
+    <li><strong>Nobody kills alone.</strong></li>
+    <li><strong>Agreement only counts between different minds.</strong> <em>Reworded.</em> An instrument counts as a mind of its own; two genomes on one model family count as one.</li>
+    <li><strong>Lowest level first.</strong> <em>Extended to perception.</em> A reflex before a tool, a tool before a plan; and to sense, a program before a probe, a probe before a larger model, a model before a human.</li>
+    <li><strong>Honey before code.</strong> Whoever writes the code cannot touch the test.</li>
+    <li><strong>Mark the dead ends.</strong></li>
+    <li><strong>Planners never build.</strong></li>
+    <li><strong>Autonomy is configured.</strong></li>
+    <li><strong>No genome speaks before its exam.</strong> <em>New.</em> Every genome is run on labelled cases before release; the exam admits it and sets its threshold.</li>
+    <li><strong>Read the decision, do not ask for it.</strong> <em>New.</em> A small model's choice is taken from its probabilities, in both option orders, never from the word it writes.</li>
+    <li><strong>Judge near home, discover at large.</strong> <em>New, adopted after the zones experiment.</em> Probes judge inside the code zone a program drew for them; scouts roam free of zones; patrollers watch the edges.</li>
+  </ol>
+</section>
+
+<section id="harness">
+  <h2>What a harness must provide</h2>
+  <p>The full requirements are in <code>docs/harness-architecture-0.2.adoc</code>. In short:</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Need</th><th>What it means</th></tr></thead>
+    <tbody>
+      <tr><td class="n">Run one ageant</td><td>A genome, one model behind a single interface, a closed list of tools, hard limits on steps, time and deposits.</td></tr>
+      <tr><td class="n">Read a probe</td><td>The probability of each answer from the model's token probabilities, in both answer orders. A model that cannot give them cannot be a probe.</td></tr>
+      <tr><td class="n">Enforce outside the model</td><td>Write access limited to the ageant's journal and its leased target. Fixtures, exams, settings and the colony log out of reach.</td></tr>
+      <tr><td class="n">Six programs</td><td>Clock, Sensor, Instruments, Prover, Ledger and Warden, driven by one settings file.</td></tr>
+      <tr><td class="n">Facts and zones</td><td>Facts in their own trusted block, each with what it proves; code zones drawn by a seeded program and given to probes only.</td></tr>
+      <tr><td class="n">One change, one commit</td><td>Every change can be attributed, proven, bisected and reverted separately.</td></tr>
+      <tr><td class="n">A place for the human</td><td>Cap and uncap, answer 🙋, label fixtures, read the log, pause the colony.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <h3>Levels, in order</h3>
+  <p>Each level tests one assumption and needs only the parts built before it.</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Level</th><th>Tests</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="n">0a Format</td><td>Do small models give a valid signal from a closed menu?</td><td><span class="ok">done</span> 100% valid</td></tr>
+      <tr><td class="n">0b Judgment</td><td>Do small models judge, when read as probabilities?</td><td><span class="ok">done on fixtures</span> AUC 0.82–0.88; one decision per target and code zones adopted</td></tr>
+      <tr><td class="n">0c Senses</td><td>Do instruments on a real Angular repository produce facts as clean as the fixtures, and does Leiden draw zones of the right size?</td><td>next</td></tr>
+      <tr><td class="n">1 Loop</td><td>One 🧪 becomes one proven change.</td><td></td></tr>
+      <tr><td class="n">2 Physics</td><td>Decay and dead ends: the colony stops trying what cannot be done.</td><td></td></tr>
+      <tr><td class="n">3 Genomes</td><td>The Queen designs a missing caste, and it passes its exam.</td><td></td></tr>
+      <tr><td class="n">4 Honey</td><td>One real user story, from frame to green.</td><td></td></tr>
+      <tr><td class="n">5 Garden</td><td>Two stories sharing a structure.</td><td></td></tr>
+      <tr><td class="n">6 Immunity</td><td>Bad ageants are removed and good ones are not.</td><td></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="weak">
+  <h2>Known weaknesses</h2>
+  <p>These are the places where ADD is most likely to fail. Some exist in any way of building software and are listed so that ADD is not held to a higher standard than the alternatives.</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Weakness</th><th>What ADD does about it</th><th>What remains</th></tr></thead>
+    <tbody>
+      <tr><td class="n">One model family</td><td>Instruments count as independent minds; scouts read no zone.</td><td>Until a second family passes on 16 GB, agreement between models is one mind asked twice.</td></tr>
+      <tr><td class="n">Fixtures by one author</td><td>Human calibration; held-out sets labelled before any run; decision rules written before each run.</td><td>39 + 16 + 14 fixtures from one author: a direction, not a measurement.</td></tr>
+      <tr><td class="n">Facts written by hand</td><td>Instruments are designed to compute them.</td><td>Whether real instruments give facts this clean is the next level's question.</td></tr>
+      <tr><td class="n">Bugs inside a target</td><td>Failing tests and lint first; probe as second opinion.</td><td>The 🐛 probe fails its exam in every run.</td></tr>
+      <tr><td class="n">Zone blind spots</td><td>Roaming scouts, context-free instruments, zones redrawn as code changes.</td><td>Probes fed one zone share its mistakes; zone drift is not measured yet.</td></tr>
+      <tr><td class="n">Nobody holds the plan</td><td>The garden holds it, in plots small enough to review one at a time.</td><td>Whether many small plots add up to a sound architecture is untested.</td></tr>
+      <tr><td class="n">Proof is only as good as the tests</td><td>Tests come from capped scenarios; code writers cannot edit them; humans test by hand.</td><td>No worse than software written by people.</td></tr>
+      <tr><td class="n">The human becomes the bottleneck</td><td>Founding concentrates effort at the start; frames are capped whole; autonomy widens decision by decision.</td><td>Labelling fixtures is now a recurring cost as well.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="open">
+  <h2>Open questions</h2>
+  <h3>Answered in 0.4</h3>
+  <ul>
+    <li><strong>Can small models handle the signals?</strong> Yes for the format; for judgment, when they are read rather than asked.</li>
+    <li><strong>Does one decision per target hold on unseen cases?</strong> Yes: 10/16 against 8/16 for the scout. The 8B is the probe model, since the 4B scored 7/16.</li>
+    <li><strong>Can small models judge what no program can?</strong> At the bar: 6 of 11 cases only a model could see. The scout got 4 of the 5 new ones, so writing a decision still helps there.</li>
+    <li><strong>Does code zone context help?</strong> Yes, for 🧩 and 🧹, with no contamination from a neighbour's bug.</li>
+  </ul>
+  <h3>Still open</h3>
+  <ul>
+    <li><strong>Do instruments produce the facts and signals the fixtures assumed?</strong> First job of Level 0c, on a real Angular repository.</li>
+    <li><strong>Can the same reading work for workers?</strong> Probes decide where a signal goes. Writing code is still generation, checked only by the Prover.</li>
+    <li><strong>Which model per mode?</strong> The 8B read directly was best without zones; the 4B writing a note first was best with them, at about five times the time per call.</li>
+    <li><strong>Does intent ripen well, and does the garden stay a garden?</strong> Untested since 0.3.</li>
+    <li><strong>How far can autonomy go, and how should it be tuned?</strong> Thresholds, decay and quorums are still guesses, now joined by exam limits and zone sizes.</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p>Ant-Driven Development, concept draft 0.4. Evidence: <code>docs/level0-findings.adoc</code>; decision rules: <code>docs/concept-0.4-outline.adoc</code>; previous draft: <code>docs/archive/concept-0.3.html</code>. Judging whether a colony's output is good enough is left to the humans who run it.</p>
+</footer>
+
+</div>
+</body>
+</html>

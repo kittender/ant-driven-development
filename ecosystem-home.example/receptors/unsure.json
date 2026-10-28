@@ -1,0 +1,28 @@
+{
+  "id": "receptor-unsure-a",
+  "caste": "scout",
+  "role": "receptor",
+  "template": "receptor",
+  "author": "human:melinado",
+  "model": "",
+  "temperature": 0.2,
+  "seed": 0,
+  "prompt": "Is the purpose of the target unclear, so that you could not explain in one sentence what it does and why? Answer yes if you could not.",
+  "reacts_to": [],
+  "may_deposit": [
+    "❓"
+  ],
+  "tools": [
+    "deposit",
+    "finish"
+  ],
+  "commands": [],
+  "limits": {
+    "steps": 2,
+    "seconds": 120,
+    "output_tokens": 256,
+    "malformed": 2,
+    "deposits": 1
+  },
+  "status": "probation"
+}

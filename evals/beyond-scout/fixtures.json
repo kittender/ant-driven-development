@@ -1,0 +1,19 @@
+[
+  {
+    "id": "message-tone",
+    "about": "tone of user-facing messages; needs a honey cell defining the product's tone and a larger model (patroller or gardener). Moved out of Level 0 at calibration.",
+    "instrument": "path rule",
+    "target": "src/app/credit/messages.fr.ts",
+    "terrain": "export const messages = {\n  amountRequired: 'Hé ! Il faut un montant, là.',\n  noResult: 'Rien trouvé, désolé 🙃',\n  saved: 'Enregistré !!!',\n};",
+    "facts": [
+      "changed: 1 tick ago"
+    ],
+    "trail": "messages.fr.ts  ✅",
+    "honey": [],
+    "garden": [],
+    "task": "Read src/app/credit/messages.fr.ts and mark what it needs with signals, then finish. If it needs nothing, finish without depositing.",
+    "accept": [
+      "🙋"
+    ]
+  }
+]

@@ -1,0 +1,188 @@
+= ADD on Small Models: What the Concept Is Missing
+:revdate: 2026-10-22
+:revremark: Reflection on Level 0 findings; proposes changes to concept draft 0.3
+:toc: left
+:sectnums:
+
+[abstract]
+Level 0 asked whether small local models can do a scout's job: read one piece of code and pick the right signal from a closed menu.
+After the harness fixes, the *format* side is solved (100% valid), but the *judgment* side is not: the best 4B model is right about half the time, and three other families collapse onto one default answer.
+This document argues that most of the gap is in the concept, not in the models.
+ADD asks small models questions that are too wide, that tools could answer, and whose errors do not cancel out.
+It proposes eight changes, each testable on the one model already installed.
+
+== What Level 0 actually showed
+
+[%header,cols="3,4"]
+|===
+| Observation | What it says about the concept
+| 100% valid once output is constrained, the reason comes first, targets are a closed choice, and there is one decision per session. | The *trail language* works for small models. The closed menu was the right call.
+| Best model (qwen3:4b) right on about 50–60% of 40 cases; gemma3, llama3.2 and phi4-mini at 20–30%, each answering one default signal (🧪 or 📝) almost everywhere. | A scout's question is a 10-way classification across unrelated dimensions. That is a code review compressed into one token, not a micro-task.
+| The note is often right and the signal wrong ("breaks the accepted decision" → `bug`). | Describing and labelling are two different skills; the concept fuses them.
+| On clean code, models write "works as expected" and still deposit. | The question "what does this need?" presupposes a need. The concept assumes silence is the default; the prompt does not.
+| 🙋 got 0 of 12 across all models and menus. | Some signals cannot be known by reading code. They belong to policy, not perception.
+| Emoji vs names: no significant difference overall, but individual signals swing strongly. | The storage form (emoji) and the prompt form (words) have different readers and should be designed separately.
+| 34 of the 40 fixtures could have been flagged by a deterministic tool: coverage, compiler, linter, a plot's own proof, git recency, a path rule. | The Ecosystem counts signals but does not *sense*. It asks models what instruments already know.
+|===
+
+== The central gap: the colony has no senses of its own
+
+In the concept the Sensor *counts* and the scouts *perceive*.
+Real ants are the other way round: perception is cheap, specialised hardware.
+An ant's antenna carries different sensilla for different chemicals, and each one answers one question with no judgment at all.
+Judgment, such as which trail to follow, is spent only on what the sensilla report.
+
+ADD gives that perception job to the least reliable part of the system.
+A small model reading `credit.service.ts` to find out whether it has a test is doing, slowly and at 60% accuracy, what a coverage report does instantly and exactly.
+
+=== Change 1: instruments in the Ecosystem
+
+Add a sixth deterministic component, or extend the Sensor, with *instruments*: programs that turn the toolchain into signals.
+
+[%header,cols="1,2,2"]
+|===
+| Signal | Instrument | Already in the toolchain
+| 🧪 | Coverage per symbol | the target's test runner with coverage
+| 🌱 | Unresolved import, missing route component, template calls an unknown method | `tsc`, Angular strict templates
+| 🧹 | Unused imports, `console.log`, duplicate branches, nesting depth, duplicated blocks | ESLint, a duplication detector
+| 📝 | Exported symbol without a doc comment and with many callers | a lint rule plus a reference count
+| 🧩 | The plot's own *proof* rule | the garden already has a `proof` field
+| 👀 | Changed recently, not reviewed, in a sensitive path | git plus a path list in the settings
+| 🙋 | Change in a path the settings mark as human-owned (styles, templates, messages, legal) | the `visual_and_wording` setting
+|===
+
+This is law 9, "lowest level first", applied to *perception* and not only to action.
+The concept already has the right instinct ("reflex, tool, plan") but uses it only for doing, never for noticing.
+
+On the Level 0 set, only six cases need a model at all: two semantic bugs (off-by-one, 1-based month) and four comprehension cases (cryptic code). That count is an upper bound, because the fixtures were written with explicit hints, but it changes the colony's shape: *instruments do the volume, small models do the residue.*
+
+=== Change 2: facts in the task bundle, computed, never inferred
+
+When a model does judge, it should not have to infer what an instrument knows.
+The bundle (architecture, context assembly) gains a *facts* part between terrain and task:
+
+....
+FACTS (computed by the Ecosystem)
+  coverage      onSubmit 0%, getById 100%
+  compiler      ok
+  lint          no-console x2
+  changed       1 tick ago by @leni03, not reviewed
+  callers       14 files
+....
+
+Several Level 0 misses were about facts outside the model's view: is there a test, does the file exist, is this change fresh.
+The fixtures supplied them as comments; a real colony must compute them.
+
+== Ask small models narrow questions
+
+=== Change 3: receptors instead of scouts
+
+Replace the scout's question "what does this code need?" with *receptors*: one genome per signal, one binary question, "no" by default.
+
+....
+Receptor 🐛   "Is there a line in pageOf where the result is wrong for some input?
+               Name the line, or answer no."
+Receptor ❓   "Could you explain in one sentence what k7 returns? If not, answer no."
+....
+
+Why this should help, from the data:
+
+* *Mapping misses disappear*: the question already names the signal, so there is nothing to map.
+* *Silence becomes the default*: "no" is an answer, not an absence. This removes the false need that "what does it need?" creates.
+* *Default collapse is visible*: a receptor that says "yes" to everything shows its base rate at once.
+* *Cost stays low*: receptors for one target share the same prefix (shared instructions, terrain, facts), so a local runtime reuses it. Only the last line differs.
+
+The concept already says "a caste learns two or three signals"; the Level 0 scout was given nine. The data says the concept was right and the implementation was too generous.
+
+=== Change 4: cache by target, not by genome
+
+The architecture orders the bundle genome-first, so the cache is shared by ageants with the same genome *and* target.
+With receptors, many genomes look at one target. The shareable prefix is then the target:
+
+....
+1 shared rules (identical for every receptor)
+2 terrain + facts of the target            <- cache boundary for receptors
+3 the receptor's question                  <- the only part that changes
+....
+
+On a laptop this matters more than token prices: one resident model and one warm prefix are what make many tiny calls cheap.
+
+== Agreement must mean independence
+
+=== Change 5: errors that do not cancel
+
+The concept accepts wrong requests because "a wrong request costs one wasted micro-task and then decays", and lets reinforcement filter noise.
+That only works if errors are *independent*.
+phi4-mini answering 🧪 on almost every target is not noise; three phi4 ageants would cross a threshold of three on every file in the repository.
+
+Correlated errors are the normal failure mode of small models, so the concept needs two guards:
+
+* *An entrance exam for every genome*, not only soldiers. Level 0 is that exam: before a genome may deposit signals that count, it is scored on labelled cases. The fixtures become the colony's immune training set, and the Warden runs it on `GenomeRegistered`.
+* *A base-rate check*: a genome whose "yes" rate for a signal is far above that signal's rate in the labelled set stays on probation for that signal.
+
+=== Change 6: an instrument is a different mind
+
+Law 8 says agreement only counts between different minds, which means different model families.
+On a 16 GB laptop that law is not affordable: only one family passed.
+
+An instrument is the most independent source there is: it shares no training data or biases with any model.
+Proposed rewording of law 8:
+
+[quote]
+Agreement only counts between independent sources: different model families, or a model and an instrument.
+
+A model's 🐛 next to a failing test, or its 🧪 next to 0% coverage, is worth more than three models agreeing with each other.
+
+== Signals have owners
+
+=== Change 7: classify every signal by who can know it
+
+[%header,cols="1,3,2"]
+|===
+| Class | Signals | Who raises them
+| Measurable | 🧪 🌱 🧹 📝 🧩 (with a proof) 👀 | Instruments; a model only to judge whether it matters
+| Judgeable | 🐛 ❓ 🧩 (no proof) | Receptors, confirmed by an instrument where one exists
+| Owned | 🙋 | Settings and paths, never a model
+|===
+
+🙋 is the clearest case: a small model cannot know that wording is a product decision, because it is not written in the code.
+The concept puts 🙋 in the request table "for any ageant"; it belongs with the autonomy settings.
+
+The same split applies to the garden. A plot with a `proof` can be enforced by an instrument; a plot without one can be enforced only by a model large enough to apply a rule to code, and Level 0 shows 4B models cannot (🧩 at 0–2 of 4). For a colony meant to run on small models, a plot to be enforced should come with its proof.
+
+=== Change 8: two renderings of the trail
+
+Emoji are for programs and humans: unambiguous, easy to grep, compact.
+Models read words better for some signals (`human` against 🙋) and worse for others (`seed` against 🌱).
+The concept should keep emoji as the *storage* form and treat the *prompt* form as its own design: words, a definition, and if needed one example. The two are joined by the dictionary, as `-menu both` does today.
+
+== What this does to the concept's hopes
+
+The concept hoped that "work runs mostly on small models, including ones on the developer's own machine".
+Level 0 suggests a sharper version: *work runs mostly on the developer's own toolchain*, and small models handle the residue that only judgment can settle. That is a smaller job, and a more believable one.
+
+It also changes the cost question the concept deferred. A colony where instruments raise most signals spends model calls only where a tool cannot see, so the comparison with one large agent is no longer "many small calls against a few large ones" but "a few small calls plus the build you were going to run anyway".
+
+== Proposed changes to concept draft 0.3
+
+[%header,cols="1,3"]
+|===
+| Where | Change
+| Three layers | The Ecosystem gains instruments; it senses as well as counts.
+| Castes | Scouts become sets of receptors: one signal, one binary question each.
+| Trail language | Signals classified as measurable, judgeable or owned. 🙋 moves to owned. Storage form and prompt form are separate.
+| Life of a signal | A stimulus comes first from an instrument; a receptor confirms or adds judgment.
+| Garden | A plot meant to be enforced carries a proof.
+| Immune system | Entrance exam and base-rate check for every genome, not only soldiers.
+| Laws | Law 8 reworded (instruments count as independent minds). Law 9 extended to perception.
+| Harness | Bundle gains a computed *facts* part; cache boundary by target for receptors.
+|===
+
+== Experiments that need no new model
+
+All of these run on qwen3:4b, already installed, with no API key.
+
+. *Receptors against the scout*: ten binary genomes on the same 40 fixtures, compared with the one-shot scout. About 400 short calls, shared prefix, 15–20 minutes.
+. *Facts in the bundle*: move the hints the fixtures carry in comments ("no spec file", "changed one tick ago") into a computed FACTS block, and measure the change.
+. *Human calibration*: there is no strong model to check the fixtures, so a human reads the seven cases no model got right in any menu (`copy-paste-methods`, `iban-check`, `toast-in-service`, `any-lookup`, `brand-colour-change`, `message-tone`, `legal-mention`), and keeps, corrects or drops each one. That is the colony's founding phase in miniature.
+. *Base rate per genome*: from the runs already recorded, compute each model's "yes" rate per signal against the label rate; a first version of the entrance exam needs no new runs at all.

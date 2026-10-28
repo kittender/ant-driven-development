@@ -1,0 +1,202 @@
+= Ant-Driven Development: Implementation Plan
+:revnumber: 0.2
+:revdate: 2026-10-10
+:revremark: Stack decided: Go. Level 0 implemented.
+:toc: left
+:toclevels: 2
+:sectnums:
+:icons: font
+
+[abstract]
+How to build an ADD harness, level by level, from the architecture document.
+Stack: *Go*, standard library first, a few small dependencies from level 1.
+Level 0 is implemented in `kittender/add` and passes its tests; this plan covers what it contains and what comes next.
+
+== Stack decision
+
+=== What actually costs time in a harness
+
+The harness is a referee holding a stopwatch, not an athlete.
+An ageant step waits seconds on a model, and a heartbeat waits seconds to minutes on the target's build and tests.
+The Ecosystem itself does integer arithmetic on a few thousand events, so raw speed is irrelevant.
+What matters: correctness of the physics, LLM plumbing, process control and sandboxing, and fit with the TypeScript projects the colony works on.
+
+=== Why Go
+
+[%header,cols="2,4"]
+|===
+| Criterion | Go
+| Process control | The best of the candidates: `context` cancellation, `os/exec`, process groups. The Warden kills sessions and the Prover runs untrusted builds, so this matters.
+| "Compiled physics" | One static binary for the Ecosystem, matching the concept's image of programs the ageants cannot reach.
+| Correctness | Explicit errors, a race detector (`go test -race`), built-in fuzzing, table-driven tests.
+| Concurrency | Goroutines and channels fit one Runner per ageant and the Ledger's single writer naturally.
+| LLM plumbing | Plain HTTP and JSON. Ollama and the Anthropic Messages API need no SDK; the official `anthropic-sdk-go` exists if wanted later.
+| Weak spot | No native TypeScript parser. Handled by a small Node sidecar for symbol addressing (see <<decisions>>).
+| Cost | Learning Go. Mitigated by `docs/go-for-js.md` in the repository.
+|===
+
+TypeScript on Bun remained a sound option; Go was chosen as a deliberate learning goal. The architecture is language-neutral, so nothing upstream changes.
+
+== Shape of the code
+
+=== Functional core, imperative shell
+
+Components never call each other: each reads events and appends events.
+That maps onto a pure `React(event, views, settings, rng) → (events, effects)` per program, and a thin shell that performs the effects and appends their results.
+JavaScript analogy: the Elm architecture, or a Redux reducer that returns commands.
+
+....
+              +------------------------- shell (IO) --------------------------+
+              |                                                                |
+  Clock timer |    append        fold          React (pure)        effects     |
+  Console ----+--> Event ---> Views ---> Clock/Sensor/Warden/ ---> start session,
+  Effect done |   (SQLite)   (in memory)  Prover/Ledger          run proof, git,
+              |                            returns events,       render trail.md
+              |                            effects                    |        |
+              +-------------------------------------------------------+--------+
+                                     results come back as events
+....
+
+* `internal/core`: types, view reducers, rules, the five programs. No IO imports; from level 1 a test enforces it by checking `go list -deps`.
+* Everything else is shell. Because decisions live in the core and time is ticks, a colony run can be simulated or replayed in milliseconds.
+
+=== Where the trust zones land
+
+Zone A is not a process: model output is data inside the Runner, and everything it wants goes through the Tool Gateway in the harness process.
+Untrusted code runs in exactly two places, both sandboxed: the `run` tool, and *the Prover*, because it executes tests and builds that ageants wrote.
+On macOS: one container per execution (Docker, OrbStack or Apple `container`), worktree mounted, no network, `ecosystem-home` never mounted. The harness runs as its own OS user from level 1.
+
+=== Layout
+
+Level 0 packages exist today; later ones are marked.
+
+....
+add/
+  cmd/
+    add-eval/                  level 0 experiment CLI                         done
+    add/                       harness + console CLI                           L1
+  internal/
+    core/                      targets, emoji rule, dictionary, genome,       done
+                               actions; later events, views, rules, programs
+    model/                     Model Gateway: parser, JSON Schema, Ollama,    done
+                               Anthropic, fake; later replay
+    tools/                     Tool Gateway: deposit, finish                  done
+                               read, write, run, flag, propose_*, submit_*     L1+
+    runner/                    one session; context assembly                  done
+    eval/                      fixtures, scoring, parallel run, report        done
+    ledger/                    SQLite event store, hash chain, bus             L1
+    git/                       worktrees, pending/proven branches, culprit     L1
+    sandbox/                   container execution                             L1
+    render/                    trail.md, inline trail: comments                L1
+  tools/ts-symbols/            Node sidecar: TS compiler API symbol ranges     L2
+  ecosystem-home.example/      dictionary.json, genomes/                      done
+  evals/level0/fixtures.json   14 labelled cases                              done
+  docs/go-for-js.md            Go explained from JavaScript                   done
+....
+
+[[decisions]]
+== Key technical decisions
+
+[%header,cols="2,5"]
+|===
+| Topic | Decision
+| Dependencies | Standard library by default. Allowed additions, each for one job: `modernc.org/sqlite` (pure Go, no cgo), `github.com/BurntSushi/toml` (settings), `pgregory.net/rapid` (property tests).
+| Schemas | Go structs with JSON tags; decoders use `DisallowUnknownFields`, so unknown keys refuse start. The action JSON Schema is built from the menu (`model/schema.go`), flat with enums, because local runtimes convert flat enums to grammars reliably.
+| Emoji rule | Counted in runes, never bytes. Emoji_Presentation table embedded from Unicode `emoji-data.txt` (Go has no emoji tables). Trailing U+FE0F is stripped and counted.
+| Event store | SQLite, WAL mode. `events(id INTEGER PRIMARY KEY, tick, at, actor, type, cause, body JSON, prev_hash, hash)`. Triggers reject `UPDATE`/`DELETE`; the hash chain detects a damaged log, which stops the harness.
+| Events | One Go struct per event type implementing an `Event` interface; stored as `type` + JSON body. A type switch is the reducer.
+| Views | In memory, rebuilt by folding all events at start. A property test asserts live views equal rebuilt views.
+| Time | Logical ticks. A `Scheduler` interface: wall-clock ticker live, manual stepping in simulation and replay.
+| Randomness | One seeded `math/rand/v2` PCG source passed into the core; every draw happens there, so replay is exact.
+| Settings | TOML via BurntSushi/toml with `MetaData.Undecoded()` to reject unknown keys. Changes are `SettingsChanged` events applied on the next tick.
+| Model Gateway | Done. `Provider` interface; Ollama `/api/chat` with `format`; Anthropic tool use with `tool_choice: any` and `cache_control` on the stable system block; fallback line format; `<think>` blocks ignored.
+| Replay provider | Serves responses from the colony log by session and step. Both the replay feature and the main test tool from level 1.
+| Tool Gateway | Done for deposit and finish: caste table, then genome subset, then per-tool checks; actor stamped by the gateway. From level 1, paths resolved with `filepath.EvalSymlinks` and checked against the worktree, which defeats `../` and symlinks planted by `run`.
+| Processes | `exec.CommandContext` with `SysProcAttr{Setpgid: true}`; the Warden kills the whole group on watchdog or quorum.
+| Workspace | Git CLI through `os/exec`. One worktree per ageant in `ecosystem-home/working-copies`. Branches `add/pending` and `add/proven`. One commit per change with the change id as a trailer.
+| Culprit search | Own halving over the batch in a scratch worktree, instead of `git bisect`: easier to control, finds several culprits by repeating.
+| Symbols | Level 1 targets whole files. From level 2, a Node sidecar (`tools/ts-symbols`) using the TypeScript compiler API returns symbol ranges as JSON; the harness calls it as a subprocess. Line ranges for other languages.
+| Affected tests | Start with the tests of touched folders; later the target's own `vitest related` or `jest --findRelatedTests`.
+| Console | CLI first (`flag` package). Later a local page served by `net/http` with server-sent events from the bus.
+|===
+
+== Build order
+
+Each level ends with an experiment you can run. Sizes are rough, for one person part-time, learning Go along the way.
+
+=== Level 0: Signals — implemented
+
+Question: do small models choose a valid and fitting signal from a closed menu?
+
+What exists:
+
+* `core`: `Target` with traversal-safe parsing, emoji rule, `Dictionary`, `Genome` with caste validation, `Action`.
+* `model`: Model Gateway with Ollama, Anthropic and fake providers; JSON and line-format parsing; fuzz test.
+* `tools`: Tool Gateway for `deposit` and `finish` — verdict emoji refused, scope enforced, duplicates ignored, actor stamped.
+* `runner`: session loop with step, time and malformed limits; context in the architecture's order, stable part byte-identical.
+* `eval` + `cmd/add-eval`: 14 fixtures (including a prompt-injection case), N models × N seeds in parallel, `report.md` and `sessions.jsonl`.
+
+To do on your machine:
+
+. `brew install go ollama`, pull two to four small models.
+. `go test -race ./...`, then `go run ./cmd/add-eval -models ollama:<a>,ollama:<b> -seeds 3`.
+. Run once more with `-schema=false` to see how models cope without constrained output.
+. Read the misses; adjust fixture wording or the genome prompt as a new genome file, never in place.
+
+Exit: a table per model, and a decision on which models stay in the rotation.
+
+=== Level 1: Loop (3 to 4 weeks)
+
+Goal: one 🧪 becomes one proven change.
+
+* `ledger`: SQLite event store with hash chain; bus; views for trail and ageants; `trail.md` renderer.
+* `core` programs: Sensor thresholds and `WakeRequested`; Warden admission and leases.
+* `tools`: `read` and `write` with lease and path checks; the full caste table already refuses the rest.
+* `git`: worktree per ageant, `ChangeSubmitted` on `add/pending`.
+* Prover with one check, in a container; verdicts ✅ and ❌.
+* `cmd/add`: `init`, `deposit`, `trail`, `log`, `pause`.
+* Conformance tests for every level-1 MUST, including escape attempts.
+
+Exit: on a toy TS repo, a human deposits 🧪🧪🧪 on a function, a hand-written tester genome writes a test, the Prover marks it ✅.
+
+=== Level 2: Physics (2 to 3 weeks)
+
+Clock decay and expiries; ⛔ in the failed genome's name and selection rule 2; watchdog; heartbeat batching with halving culprit search, revert and `conflict`; `ts-symbols` sidecar; simulation harness with fake models. Exit: an impossible task the colony stops trying, in simulation first.
+
+=== Level 3: Genomes (2 weeks)
+
+Templates, genome view, Queen sessions on unmet need, `submit_genome` validation, model rotation, probation.
+
+=== Level 4: Honey (2 weeks)
+
+Frame and cell parser, ripeners and `propose_frame`, cap and uncap in the CLI, test ownership in the Warden, `plan.test` = fails for the expected reason.
+
+=== Level 5: Garden (2 weeks)
+
+Plot parser, gardeners and `propose_plot`, quorum by distinct genome and model, seeding 🌱, patrollers and 🧩.
+
+=== Level 6: Immunity (2 weeks)
+
+Soldiers, `flag`, quorum kill, 💀 and automatic 👀, entrance exam and canaries.
+
+== Testing strategy
+
+[%header,cols="1,3,2"]
+|===
+| Layer | What | Tool
+| Conformance | One test per MUST, named after it: `TestRefusals` in `tools` already covers verdict emoji, scope, traversal and caste. The architecture becomes the test plan. | `go test`
+| Property | Strength never exceeds max and counts distinct ageants; decay is monotone; live views equal rebuilt views; one lease per target. | `rapid` (L1+)
+| Fuzz | Action parser today; settings and frame parsers later. | `go test -fuzz`
+| HTTP adapters | Real HTTP against `httptest.NewServer`; no network in tests. | stdlib
+| Simulation | Whole colony with scripted models over many ticks; assertions on the event sequence. | `go test` + fake provider
+| Replay | A recorded live run replayed from the colony log produces the same events. | replay provider
+| Concurrency | Every test run with `-race`. | stdlib
+| Eval | Model behaviour on fixtures. A tracked report, not pass or fail. | `cmd/add-eval`
+|===
+
+== Risks
+
+* *Learning Go while designing a harness.* Keep levels small, read `docs/go-for-js.md`, and let tests carry the design: each MUST becomes a test before it becomes code.
+* *Sandbox on macOS* is the fiddliest part. Containers add seconds per Prover run, acceptable at heartbeat frequency.
+* *Small-model reliability* may force the line format everywhere; both parsers already sit behind the gateway.
+* *Over-building the Ecosystem* before level 0 answers its question. Run the experiment first.

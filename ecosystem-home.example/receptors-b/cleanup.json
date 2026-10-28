@@ -1,0 +1,29 @@
+{
+  "id": "receptor-cleanup-b",
+  "caste": "scout",
+  "role": "receptor",
+  "template": "receptor",
+  "author": "human:melinado",
+  "model": "",
+  "temperature": 0.2,
+  "seed": 0,
+  "prompt": "Name clutter in the target that a careful reviewer would remove: dead or commented-out code, unused imports, debug output, duplicated logic, or needless nesting.",
+  "reacts_to": [],
+  "may_deposit": [
+    "🧹"
+  ],
+  "tools": [
+    "deposit",
+    "finish"
+  ],
+  "commands": [],
+  "limits": {
+    "steps": 2,
+    "seconds": 120,
+    "output_tokens": 256,
+    "malformed": 2,
+    "deposits": 1
+  },
+  "status": "probation",
+  "answer": "found"
+}

@@ -1,0 +1,29 @@
+{
+  "id": "receptor-needs_doc-b",
+  "caste": "scout",
+  "role": "receptor",
+  "template": "receptor",
+  "author": "human:melinado",
+  "model": "",
+  "temperature": 0.2,
+  "seed": 0,
+  "prompt": "The target is used by other code. Name a parameter, option or return value whose meaning is hard to guess without a comment that is not there.",
+  "reacts_to": [],
+  "may_deposit": [
+    "📝"
+  ],
+  "tools": [
+    "deposit",
+    "finish"
+  ],
+  "commands": [],
+  "limits": {
+    "steps": 2,
+    "seconds": 120,
+    "output_tokens": 256,
+    "malformed": 2,
+    "deposits": 1
+  },
+  "status": "probation",
+  "answer": "found"
+}

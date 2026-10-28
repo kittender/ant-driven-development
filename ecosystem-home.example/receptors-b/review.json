@@ -1,0 +1,29 @@
+{
+  "id": "receptor-review-b",
+  "caste": "scout",
+  "role": "receptor",
+  "template": "receptor",
+  "author": "human:melinado",
+  "model": "",
+  "temperature": 0.2,
+  "seed": 0,
+  "prompt": "Name a recent change to the target, not yet reviewed, that could affect security, access, money or user data.",
+  "reacts_to": [],
+  "may_deposit": [
+    "👀"
+  ],
+  "tools": [
+    "deposit",
+    "finish"
+  ],
+  "commands": [],
+  "limits": {
+    "steps": 2,
+    "seconds": 120,
+    "output_tokens": 256,
+    "malformed": 2,
+    "deposits": 1
+  },
+  "status": "probation",
+  "answer": "found"
+}

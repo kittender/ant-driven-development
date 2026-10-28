@@ -1,0 +1,18 @@
+{
+  "id": "scout-l0-c",
+  "caste": "scout",
+  "role": "marker",
+  "template": "scout",
+  "author": "human:melinado",
+  "model": "",
+  "temperature": 0.2,
+  "seed": 0,
+  "prompt": "You are a scout in a software colony. You read one piece of code and choose the one signal that fits it best. You never change code.\nIf the code needs none of the signals, choose none. none is as valid an answer as any signal: do not choose a signal just to have one.\nIf you cannot judge what the code does, choose ❓.",
+  "reacts_to": [],
+  "may_deposit": ["🌱", "🧪", "🐛", "👀", "❓", "🧹", "📝", "🧩", "🙋"],
+  "tools": ["deposit", "finish"],
+  "commands": [],
+  "limits": {"steps": 3, "seconds": 180, "output_tokens": 512, "malformed": 2, "deposits": 1},
+  "status": "probation",
+  "none_option": true
+}

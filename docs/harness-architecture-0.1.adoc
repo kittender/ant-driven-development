@@ -1,0 +1,916 @@
+= Ant-Driven Development: Harness Architecture
+:revnumber: 0.1
+:revdate: 2026-10-10
+:revremark: Companion to the ADD concept, draft 0.3
+:toc: left
+:toclevels: 2
+:sectnums:
+:icons: font
+:source-highlighter: none
+
+[abstract]
+This document describes the architecture of an ADD harness: the software that hosts a colony of ageants and enforces the rules of the ADD concept.
+It names components, records, interfaces and flows.
+It does not name a programming language, a model provider, a version control system or a database.
+Any implementation that satisfies the requirements here is an ADD harness.
+
+== Scope
+
+=== What this document is
+
+A harness has two jobs.
+
+. *Host ageants*: start a model session with a genome, give it a closed set of tools, and end it.
+. *Be the Ecosystem*: run the deterministic programs (Clock, Sensor, Prover, Ledger, Warden) that the concept calls the physics of the colony.
+
+The concept document says _what_ a colony does and why.
+This document says what a piece of software must provide for that to happen.
+
+=== What it is not
+
+* It is not an implementation plan. Build order is covered only by the conformance levels in <<conformance>>.
+* It does not choose technology. <<binding>> shows one possible binding and is not normative.
+* It does not define how to measure a colony against other ways of working.
+
+=== Requirement words
+
+*MUST* marks a rule without which the system is not ADD.
+*SHOULD* marks a strong default that an implementation may change with a stated reason.
+*MAY* marks an option.
+
+=== Vocabulary
+
+[%header,cols="1,4"]
+|===
+| Term | Meaning
+| Ageant | One model session with one genome, one target and one life.
+| Genome | The definition an ageant is started from: prompt, model, tools, signals, limits.
+| Caste | A family of genomes with the same permissions: scout, worker, patroller, soldier, gardener, queen.
+| Signal | One emoji on one target, with an integer strength.
+| Request | A signal any permitted ageant may deposit. It decays.
+| Verdict | A signal only the Ecosystem or a human may issue.
+| Target | The thing a signal is about: a file, a symbol in a file, an ageant, a honey cell, a plot.
+| Honey | The store of approved intent: frames (user stories) made of cells (scenarios).
+| Garden | The store of plans and decisions: plots.
+| Trail | The current set of signals, rendered per folder.
+| Ecosystem | The deterministic programs and their data. It contains no model.
+| Workspace | The project the colony works on: code, honey, garden, rendered trail, journals.
+| Tick | One step of the colony's logical clock.
+|===
+
+== System context
+
+....
+                        +-----------------------+
+                        |         Human         |
+                        |  intent, capping,     |
+                        |  answers, settings    |
+                        +-----------+-----------+
+                                    |
+                              Human Console
+                                    |
++----------------+      +-----------v-----------+      +------------------+
+|     Model      | <----+                       +----> |    Toolchain     |
+|   providers    |      |      ADD HARNESS      |      | compiler, tests, |
+| local, hosted  +----> |  Ecosystem + Runner   | <----+ linters          |
++----------------+      +-----------+-----------+      +------------------+
+                                    |
+                             reads, commits
+                                    |
+                        +-----------v-----------+
+                        |       Workspace       |
+                        | code, honey, garden,  |
+                        | trail, journals       |
+                        +-----------------------+
+....
+
+The harness has four neighbours.
+
+[%header,cols="1,3"]
+|===
+| Neighbour | What the harness needs from it
+| Human | Intent, approvals, answers to questions no program can settle, and the settings.
+| Model providers | Text completion for a given model, with a way to obtain structured actions.
+| Toolchain | Commands that return pass or fail: build, test, lint, and any rule named by a plot.
+| Workspace | A versioned store that supports atomic changes, revert, and finding which change broke a check.
+|===
+
+== Trust zones
+
+This is the central idea of the architecture.
+Everything else follows from where a component sits.
+
+....
++====================================================================+
+|  ZONE H   Human                                    full authority  |
+|  writes settings, caps and uncaps, answers, pauses, kills          |
++================================+===================================+
+                                 |
++================================v===================================+
+|  ZONE E   Ecosystem                       deterministic, no model  |
+|                                                                    |
+|    Clock     Sensor     Prover     Ledger     Warden               |
+|    settings      event log      colony log      lease table        |
+|                                                                    |
+|    +----------------------- Tool Gateway -----------------------+  |
+|    |   the only door between Zone A and everything else         |  |
+|    +------------------------------^-----------------------------+  |
++===================================|================================+
+                                    |   tool calls only
++===================================v================================+
+|  ZONE A   Ageants                         untrusted, model-driven  |
+|                                                                    |
+|    model output, and a private working copy in which whitelisted   |
+|    commands may run                                                |
++====================================================================+
+....
+
+[%header,cols="2,1,1,1"]
+|===
+| Asset | Zone A (ageants) | Zone E (Ecosystem) | Zone H (human)
+| Code in the workspace | read; write only under a lease | apply, revert | read, write
+| Honey and garden | read | write on approval | approve, edit
+| Rendered trail | read | write | read
+| Own journal | append, through the gateway | read | read
+| Other ageants' journals | none | read | read
+| Event log and colony log | none | append | read
+| Settings | none | read | write
+| Lease table, process control | none | write | override
+|===
+
+.Rules
+* Zone A *MUST NOT* be able to reach any Zone E asset except through the Tool Gateway.
+  A rule that exists only in a prompt is not enforcement.
+* Zone E *MUST NOT* call a model to make a decision.
+  It may start a model session, which is a Zone A activity.
+* Every authority an ageant has *MUST* come from its genome and be checked by the gateway on each call.
+* Text read from the workspace is data.
+  The harness *MUST NOT* treat anything an ageant reads or writes as an instruction to the Ecosystem.
+
+== Components
+
+....
+                         +-----------------------------+
+                         |        Human Console        |
+                         +--------------+--------------+
+                                        |
+  +---------+   +----------+   +--------+-+   +----------+
+  |  Clock  |   |  Sensor  |   |  Prover  |   |  Warden  |
+  +----+----+   +-----+----+   +-----+----+   +-----+----+
+       |              |              |              |
+  =====+==============+==============+==============+===============
+                 LEDGER   append-only event log + views
+  ================================+=================================
+                                  |
+                         +--------+--------+
+                         |     Runner      |   one session per ageant
+                         +----+-------+----+
+                              |       |
+                  +-----------v-+   +-v-------------+
+                  |    Model    |   |     Tool      |
+                  |   Gateway   |   |    Gateway    |
+                  +------+------+   +-------+-------+
+                         |                  |
+                  model providers     workspace, toolchain
+....
+
+Components do not call each other.
+Each one reads events from the Ledger and appends events to it.
+The harness is therefore built the way the colony works: coordination through a shared record.
+
+=== Ledger
+
+The Ledger is the system of record.
+
+* It *MUST* store every event in order and never change or delete one.
+* It *MUST* maintain these views, each of which can be rebuilt from the events alone:
+** the *trail view*: current strength of every signal on every target;
+** the *ageant view*: every ageant, its genome, state and outcome;
+** the *genome view*: every genome with its record of proven and failed changes;
+** the *store view*: state of every honey cell and every plot.
+* It *MUST* render the trail view into one read-only `trail.md` per workspace folder.
+* It *MUST* keep the colony log (see <<observability>>).
+* When a plot becomes grown, it *MUST* deposit a seed signal on the target of each step.
+
+=== Clock
+
+* It *MUST* append a `Tick` event at the configured interval.
+* On each tick it *MUST* append a `Decayed` event for every request signal whose decay period has elapsed, and expire leases, cooldowns and alarms that have reached their end.
+* Ticks are logical time. All rules *MUST* be expressed in ticks so that a run can be replayed at any speed.
+
+=== Sensor
+
+The Sensor turns the trail into work.
+
+* After each `Deposited`, `Decayed` and `VerdictIssued` event it *MUST* evaluate the thresholds in the settings.
+* When a signal on a target reaches its threshold, and no ageant is active on that target, and the target is not cooling down, it *MUST* append `WakeRequested` naming the caste, the target and the cause.
+* It *MUST* keep at most one outstanding wake per target and signal.
+* It *MUST* choose the genome for a wake by the rules in <<scheduling>>.
+* When a need has stayed unanswered for the configured number of ticks, it *MUST* append `WakeRequested` for a Queen session.
+* It *MUST* assemble the task bundle for each wake (see <<context>>).
+
+=== Warden
+
+The Warden controls existence and access.
+
+* It *MUST* admit or refuse every wake: population limit, cooldown, alarm mode, proof pause.
+* It *MUST* grant leases, one holder per target, with an expiry.
+* It *MUST* refuse a lease on a test to any genome that writes code for the same cell.
+* It *MUST* run the watchdog: step limit, time limit, repeated identical change, a change that undoes an earlier change, too many steps without progress.
+* It *MUST* terminate an ageant when the watchdog fires or when a flag quorum is reached, and append `AgeantKilled`.
+* It alone *MUST* hold the ability to stop a session. No tool exposes it.
+* It *MUST* run the entrance exam and the canaries for soldier genomes.
+
+=== Prover
+
+* It *MUST* run on a heartbeat: after the configured number of submitted changes or the maximum wait, whichever comes first.
+* While it runs, the Warden *MUST* admit no new ageant that writes to the workspace.
+* It *MUST* run the proof plan that the settings associate with each kind of change.
+* On a failing run it *MUST* find the change responsible, revert that change, and attribute the failure to it.
+* It *MUST* issue the verdicts: passed, failed, locked after sustained passes, alarm when the proven line itself is broken.
+* When no programmatic proof exists for a change, it *MUST* raise a question for the human and issue no verdict.
+* It *MUST* hold the gate: work reaches the main line only when the proof is green and the autonomy settings allow it.
+
+=== Runner
+
+The Runner hosts one ageant session.
+
+* It *MUST* start from exactly one genome and one task bundle.
+* It *MUST* loop: send the context to the Model Gateway, receive one action, pass it to the Tool Gateway, add the result to the context, repeat.
+* It *MUST* stop on `finish`, on a limit, or on a kill from the Warden.
+* It *MUST* keep no state after the session ends.
+* An action that cannot be parsed counts as a step. After the configured number of malformed actions the session ends with outcome `malformed`.
+
+=== Model Gateway
+
+* It *MUST* present one interface for every model, local or hosted.
+* It *MUST* accept: model name, messages, the allowed actions, temperature, seed, output limit.
+* It *MUST* return exactly one action or a parse failure, plus token counts.
+* It *SHOULD* constrain output to the allowed actions where the provider supports it.
+  Where it does not, it *MUST* fall back to a line-based action format that small models can produce.
+* It *MUST* send the stable part of the context first so that provider and local caches apply.
+* It *MUST* record every request and response in the colony log.
+
+=== Tool Gateway
+
+The Tool Gateway is the enforcement point.
+It is described in <<tools>>.
+
+=== Human Console
+
+The console is the human's side of the Ledger.
+It *MUST* let a human:
+
+* state an intent;
+* read, correct, cap and uncap frames and cells;
+* accept, reject or replace a plot;
+* answer a raised question;
+* issue the human verdicts;
+* pause and resume the colony, and kill an ageant;
+* read the trail, the ageant view and the colony log;
+* edit the settings.
+
+Every console action *MUST* be an event with a human actor.
+The form of the console (command line, page, editor extension) is free.
+
+[[data]]
+== Data model
+
+Records are given in a neutral notation.
+`?` marks an optional field and `[]` a list.
+
+=== Target
+
+....
+target   = path                      a file
+         | path "#" symbol           a symbol inside a file
+         | "@" ageant-id             an ageant
+         | "honey:" frame            a frame
+         | "honey:" frame "/" cell   one scenario
+         | "garden:" plot            a plot
+....
+
+A signal on a file also applies to the folder views that contain it.
+A signal on a symbol *SHOULD* also be written as a `trail:` comment above the symbol when the file type allows comments.
+
+=== Signal
+
+....
+Signal {
+  emoji      one entry of the dictionary
+  class      request | verdict
+  target     Target
+  strength   integer >= 1
+}
+....
+
+The dictionary is defined by the concept document.
+An implementation *MUST* load it from the settings and *MUST NOT* accept an emoji that is not in it.
+Every entry *MUST* be a single Unicode code point with default emoji presentation.
+
+.Strength of a request signal
+....
+ strength
+    3 |             ####                   threshold 3: WakeRequested
+    2 |       ####  ####  ####
+    1 | ####  ####  ####  ####  ####
+    0 +------+-----+-----+-----+-----+----->  ticks
+       deposit deposit deposit decay  decay
+....
+
+* A deposit adds 1, up to the configured maximum.
+* Every `decay[emoji]` ticks without a deposit removes 1.
+* At 0 the signal is removed.
+* A second deposit by the same ageant on the same target and emoji *MUST* be ignored. Strength counts distinct ageants.
+
+Verdicts have no strength above 1 and do not decay, except those the settings give an expiry (lease, alarm).
+
+=== Event
+
+....
+Event {
+  id       unique, totally ordered
+  tick     integer
+  at       wall-clock time, informative only
+  actor    ageant-id | "human:" name | program name
+  type     see table
+  cause?   id of the event that led to this one
+  body     fields that depend on the type
+}
+....
+
+[%header,cols="2,2,3"]
+|===
+| Type | Appended by | Meaning
+| `Tick` | Clock | Logical time advanced.
+| `Deposited` | Tool Gateway, Ledger, Console | A request signal was reinforced.
+| `Decayed` | Clock | A request signal lost one unit.
+| `VerdictIssued`, `VerdictCleared` | Prover, Warden, Ledger, Console | A verdict was placed or removed.
+| `WakeRequested` | Sensor | A threshold was crossed and a caste is needed.
+| `SpawnAdmitted`, `SpawnRefused` | Warden | The wake may or may not start now.
+| `AgeantSpawned`, `AgeantRetired`, `AgeantKilled` | Runner, Warden | Life of an ageant.
+| `LeaseGranted`, `LeaseReleased`, `LeaseExpired` | Warden, Clock | Exclusive access to a target.
+| `ChangeSubmitted`, `ChangeReverted` | Tool Gateway, Prover | A change entered or left the pending line.
+| `ProofStarted`, `ProofFinished` | Prover | One heartbeat.
+| `FlagRaised`, `FlagQuorumReached` | Tool Gateway, Sensor | Soldiers accused an ageant.
+| `GenomeRegistered`, `GenomePromoted`, `GenomeRetired` | Tool Gateway, Ledger, Console | Life of a genome.
+| `FrameProposed`, `CellCapped`, `CellUncapped` | Tool Gateway, Console | Life of honey.
+| `PlotProposed`, `PlotGrown`, `PlotWeeded` | Tool Gateway, Ledger, Console | Life of a plot.
+| `QuestionRaised`, `QuestionAnswered` | Prover, Tool Gateway, Console | Something only a human can settle.
+| `AlarmRaised`, `AlarmCleared` | Prover | Emergency mode.
+| `SettingsChanged`, `ColonyPaused`, `ColonyResumed` | Console | Human control.
+|===
+
+The `cause` field *MUST* be set on every event that has one.
+It is what makes a run explainable.
+
+=== Genome
+
+....
+Genome {
+  id            unique
+  caste         scout | worker | patroller | soldier | gardener | queen
+  role          free label: tester, debugger, ripener, undertaker ...
+  template      id of the human-written template it derives from
+  author        queen session id | "human:" name
+  model         model name known to the Model Gateway
+  temperature   number
+  seed          integer
+  prompt        text, short
+  reacts_to[]   emoji this genome may be woken by
+  may_deposit[] emoji this genome may deposit, requests only
+  tools[]       tool names from the closed set
+  commands[]    whitelisted command ids, for tool-holding workers
+  limits        { steps, seconds, output_tokens, malformed }
+  status        probation | active | retired
+}
+....
+
+* A genome is immutable. A change is a new genome.
+* `may_deposit` and `tools` *MUST* be a subset of what the caste allows (see <<tools>>). The gateway rejects a genome that asks for more.
+
+=== Ageant
+
+....
+Ageant {
+  id         unique; the name given by the Queen plus a counter
+  genome     Genome id
+  target     Target
+  cause      id of the WakeRequested event
+  state      see state machine
+  outcome?   done | cannot | malformed | limit | killed
+  change?    Change id
+}
+....
+
+=== Lease
+
+....
+Lease {
+  target    Target
+  holder    ageant-id
+  expires   tick
+}
+....
+
+=== Change
+
+....
+Change {
+  id          unique
+  ageant      ageant-id
+  targets[]   Targets touched
+  patch       the difference, applicable and revertible alone
+  cells[]     honey cells this change claims to serve
+  state       pending | proven | failed | reverted
+}
+....
+
+=== Honey
+
+....
+Frame {
+  id         path under the honey store
+  story      { as_a, i_want, so_that }
+  cells[]    Cell
+}
+Cell {
+  id         unique inside the frame
+  kind       scenario | practice
+  text       Given / When / Then, or one statement for a practice
+  test       reference to the check that encodes it
+  state      proposed | capped | red | green | uncapped
+}
+....
+
+=== Plot
+
+....
+Plot {
+  id          path under the garden store
+  decision    one sentence
+  because     one sentence
+  proof?      reference to a rule the Prover can run
+  contract?   Target and its signature
+  steps[]     Targets, in order
+  state       proposed | grown | contested | weeded
+}
+....
+
+=== Task bundle
+
+The task bundle is everything an ageant is given.
+It is defined in <<context>>.
+
+[[storage]]
+== Storage layout
+
+....
+workspace/                         versioned; visible to ageants
+  src/ ...                         the code
+    trail.md                       rendered per folder, read-only
+  honey/
+    <feature>/<frame>.md           frames and their cells
+    practices/<cell>.md
+  garden/
+    <area>/<plot>.md
+  journals/
+    ant-<id>.md                    one per ageant, append-only
+
+ecosystem-home/                    outside the workspace; Zone E only
+  settings                         one file
+  dictionary                       the signal table
+  templates/                       human-written genome templates
+  genomes/                         every genome ever registered
+  ledger/                          the event log and its views
+  colony-log/                      full session records
+  working-copies/<ageant-id>/      private copy per live ageant
+....
+
+* The two roots *MUST* be separable by the operating environment, so that a process confined to a working copy cannot reach `ecosystem-home`.
+* Journals are kept in the workspace because they are readable history. Ageants append to them only through the `deposit` tool.
+* `trail.md` and every inline `trail:` comment are derived data. If they are deleted the Ledger writes them again.
+
+[[tools]]
+== The tool interface
+
+This is the complete set of actions an ageant can take.
+Nothing else exists from inside Zone A.
+
+[%header,cols="2,3,4"]
+|===
+| Tool | Arguments | What the gateway checks before acting
+| `read` | target | Target is in the workspace and not another ageant's journal.
+| `write` | target, content or patch | Caller holds the lease. Target is not honey, garden, trail or a journal. Target is not a test of a cell the caller implements.
+| `run` | command id, arguments | Command id is in the genome's whitelist. Runs in the caller's working copy.
+| `deposit` | target, emoji | Emoji is a request and is in the genome's `may_deposit`. One per target and emoji.
+| `flag` | ageant id, evidence | Caller is a soldier. Evidence refers to existing events.
+| `propose_frame` | frame | Caller's role is ripener. Stored as proposed.
+| `propose_plot` | plot | Caller is a gardener. One decision. Stored as proposed.
+| `submit_genome` | genome | Caller is a Queen session. Fields are within the caste's limits and derive from a template.
+| `finish` | outcome, note | Always allowed. Ends the session. The note goes to the colony log only.
+|===
+
+.Tools by caste
+[%header,cols="2,1,1,1,1,1,1"]
+|===
+| Tool | Scout | Worker | Patroller | Soldier | Gardener | Queen
+| `read` | yes | yes | yes | yes | yes | yes
+| `write` | no | yes | no | no | no | no
+| `run` | no | by genome | no | no | no | no
+| `deposit` | yes | yes | yes | no | yes | no
+| `flag` | no | no | no | yes | no | no
+| `propose_frame` | no | ripener | no | no | no | no
+| `propose_plot` | no | no | no | no | yes | no
+| `submit_genome` | no | no | no | no | no | yes
+| `finish` | yes | yes | yes | yes | yes | yes
+|===
+
+.Rules
+* The gateway *MUST* refuse and record any call outside this table. A refused call counts as a step.
+* A verdict emoji passed to `deposit` *MUST* be refused and recorded against the ageant.
+* `write` changes only the private working copy. The change reaches the workspace when the ageant finishes with outcome `done`, as one `ChangeSubmitted`.
+* There is no tool to send text to another ageant, to list ageants, or to read the event log.
+* A Queen session reads the templates, the genome view and the unmet need as part of its task bundle. It needs no extra read tool.
+
+[[context]]
+== Context assembly
+
+The Sensor builds the task bundle. The Runner sends it in this order.
+
+....
+  +--------------------------------------------------+   most stable
+  | 1  Genome prompt                                 |
+  | 2  Dictionary lines for this genome's signals    |
+  | 3  Honey: the cells that apply to the target     |
+  | 4  Garden: the plots that apply to the target    |
+  | 5  Terrain: target content, its contract,        |
+  |    one reference example                         |
+  +--------------------------------------------------+   cache boundary
+  | 6  Task sentence, written by the Sensor          |
+  | 7  Prior attempts on this target, if any         |
+  | 8  Local trail: the line for this target         |
+  | 9  Allowed actions and deposits                  |
+  +--------------------------------------------------+   least stable
+....
+
+* Parts 1 to 5 *MUST* come first and be byte-identical for ageants that share a genome and a target.
+* The bundle *MUST NOT* contain another ageant's reasoning, notes or journal.
+* Part 7 contains only the patch of a failed change and the name of the check that failed.
+* Which cells and plots apply is decided by the Sensor from references: a cell names its test and its targets, a plot names its steps and contract.
+* The settings give a size limit per part. When terrain exceeds it, the Sensor *MUST* narrow to the symbol and its direct dependencies, and *MUST NOT* summarise with a model.
+
+== Flows
+
+=== Life of an ageant
+
+....
+             admitted            lease granted        finish(done)
+ REQUESTED ----------> SPAWNED --------------> ACTING ------------> SUBMITTED
+     |                    |                      |                      |
+     | refused            | lease refused        | finish(cannot)       | heartbeat
+     v                    v                      | limit, malformed     v
+  DROPPED              RETIRED <-----------------+ kill          PROVEN | FAILED
+                                                                        |
+                                                                        v
+                                                                     RETIRED
+....
+
+An ageant that only deposits (scout, patroller, soldier) goes from `ACTING` to `RETIRED`.
+
+=== From signal to proven change
+
+[%header,cols="1,2,5"]
+|===
+| Step | Actor | What happens
+| 1 | Tool Gateway | An ageant calls `deposit`. `Deposited` is appended.
+| 2 | Ledger | The trail view updates. `trail.md` is rendered again.
+| 3 | Sensor | The threshold for that emoji is reached. It picks a genome, builds the bundle, appends `WakeRequested`.
+| 4 | Warden | Checks population, cooldown, pause. Grants the lease. Appends `SpawnAdmitted` and `LeaseGranted`.
+| 5 | Runner | Starts the session in a fresh working copy. Appends `AgeantSpawned`.
+| 6 | Runner, gateways | The loop runs: read, write, perhaps run, perhaps deposit.
+| 7 | Tool Gateway | On `finish(done)` the working copy's difference becomes one `ChangeSubmitted` on the pending line. The lease is released.
+| 8 | Prover | At the next heartbeat the proof plan runs over the pending changes.
+| 9 | Prover | Green: verdict passed on each target, the request that started the work is cleared, the proven line advances.
+| 10 | Prover | Red: the responsible change is found and reverted. Verdict failed on its targets. A dead-end signal is deposited there in the name of the failed genome.
+| 11 | Warden | The target enters cooldown.
+|===
+
+Step 10 refines the concept.
+The ageant is already gone when proof runs, so the Ecosystem leaves the dead-end signal on its behalf.
+
+=== The change pipeline
+
+....
+ working copy        pending line          proven line           main line
+ (one per ageant)
+       |                   |                     |                    |
+       |  finish(done)     |                     |                    |
+       +------------------>|  one change,        |                    |
+       |                   |  one entry          |                    |
+       |                   |                     |                    |
+       |                   +---- heartbeat ----->|                    |
+       |                   |  green: advance     |                    |
+       |                   |  red: find culprit, |                    |
+       |                   |       revert it     +------ gate ------->|
+       |                   |                     |  autonomy setting  |
+....
+
+* Each change *MUST* be applicable and revertible alone.
+* Finding the culprit *SHOULD* halve the batch repeatedly instead of testing changes one by one.
+* If a change no longer applies because an earlier one was reverted, it is `failed` with reason `conflict` and its request signal is left to trigger new work.
+
+=== Flag and kill
+
+[%header,cols="1,2,5"]
+|===
+| Step | Actor | What happens
+| 1 | Sensor | A change lands, or a claim is made. A soldier is woken with the ageant's id as target.
+| 2 | Soldier | Compares the claim with the Prover's results and the patch. Calls `flag` with references.
+| 3 | Sensor | Flags on that id from distinct soldier genomes reach the quorum. `FlagQuorumReached`.
+| 4 | Warden | Stops the session if it is alive. `AgeantKilled`. Places the terminated verdict on the id.
+| 5 | Ledger | Deposits a review request on every target the ageant changed.
+| 6 | Ledger | Counts the kill against the genome. Past the configured count the genome is retired.
+|===
+
+The watchdog path skips steps 1 to 3.
+
+=== Honey
+
+....
+            cap                 test written             code passes
+ PROPOSED --------> CAPPED -----------------> RED -------------------> GREEN
+     ^                 |                       |                         |
+     |                 |        uncap          |          uncap          |
+     +-----------------+<----------------------+<------------------------+
+....
+
+* A cell reaches `RED` only when its test exists and fails for the expected reason.
+* A cell that is `GREEN` and then fails is `RED` again and raises a failed verdict on the code, not on the cell.
+* Uncapping marks the test stale and deposits a review request on code that served the cell.
+* When dead-end signals on a cell's targets reach the escalation threshold, the cell is also returned to `PROPOSED` for ripening.
+
+=== Garden
+
+....
+             quorum or human              steps seeded
+ PROPOSED -------------------> GROWN ------------------> (work on the trail)
+     |                           |
+     | rejected                  | proof fails, or a patroller's
+     v                           | misfit signals accumulate
+   WEEDED <----- replaced -------+----> CONTESTED ----> gardener woken
+....
+
+Gardeners support a proposed plot by depositing a seed signal on it and doubt it with a question signal.
+Quorum counts distinct gardener genomes on distinct models.
+
+=== A Queen session
+
+[%header,cols="1,2,5"]
+|===
+| Step | Actor | What happens
+| 1 | Sensor | A need has no genome that reacts to it, or every such genome has failed on the target. `WakeRequested` for the Queen.
+| 2 | Runner | Starts a new session. The bundle holds the need, the templates, and the genome view for similar needs.
+| 3 | Queen | Calls `submit_genome` one or more times, varying wording and example, and assigning models in rotation.
+| 4 | Tool Gateway | Validates each genome against the caste limits. `GenomeRegistered`, status `probation`.
+| 5 | Queen | Calls `finish`. The session ends and nothing of it is kept except the genomes and the log.
+| 6 | Sensor | The original need is evaluated again and now finds a genome.
+|===
+
+The Queen never names a target for an ageant and never starts one.
+Spawning is steps 3 and 4 of the main flow.
+
+[[scheduling]]
+== Scheduling
+
+=== Choosing a genome
+
+For a wake on signal _s_ and target _t_, the Sensor selects among genomes whose `reacts_to` contains _s_:
+
+. remove retired genomes;
+. remove genomes that left a dead end on _t_;
+. remove probation genomes if _t_ is not low-risk (see below);
+. among the rest, prefer a model not used by the last ageant on _t_;
+. break ties with the seeded random source.
+
+If nothing remains, the need is unmet.
+
+=== Probation
+
+A new genome works only on low-risk targets until it has the configured number of proven changes.
+The settings define low-risk by path pattern and by signal.
+`GenomePromoted` moves it to `active`.
+
+=== Admission
+
+The Warden refuses a wake when any of these holds, and the Sensor asks again on a later tick.
+
+* The number of live ageants is at the limit.
+* The target is leased or cooling down.
+* The Prover is running and the genome has `write`.
+* The colony is paused.
+* An alarm is raised and the genome's caste is not listed for alarm mode.
+
+=== Agreement needs distinct sources
+
+Wherever a count means agreement (signal strength, flag quorum, plot quorum), the harness *MUST* count distinct ageants, and for quorums distinct genomes on distinct models.
+
+=== Alarm mode
+
+When the proven line itself fails, the Prover raises the alarm.
+Ordinary wakes are refused.
+Thresholds for the castes listed in the settings drop to 1 on the failing targets.
+The alarm clears on the next green heartbeat.
+
+== Enforcement map
+
+Every rule of the concept has one place where it is enforced.
+
+[%header,cols="3,2,3"]
+|===
+| Rule | Enforced by | How
+| Only the Ecosystem or a human issues verdicts | Tool Gateway | `deposit` refuses verdict emoji.
+| An ageant writes only its leased target | Tool Gateway, Warden | `write` checks the lease table.
+| Whoever writes the code cannot touch the test | Warden | No lease on a cell's test for a code-writing genome on that cell.
+| Ageants never message each other | Tool Gateway | No such tool. Journals of others are unreadable. `finish` notes go to the colony log.
+| Honey and garden change only on approval | Tool Gateway, Console | `propose_*` stores a proposal. Only `CellCapped` and `PlotGrown` change the stores.
+| Nobody kills alone | Warden | Kill needs a quorum event or a watchdog rule. No tool stops a session.
+| Planners never build | Tool Gateway | Gardener caste has no `write`.
+| The Queen designs and never commands | Tool Gateway | Queen caste has `submit_genome` and `finish` only.
+| The settings are out of reach | Storage, operating environment | `ecosystem-home` is not visible from a working copy.
+| The same genome is not sent back to a dead end | Sensor | Selection rule 2.
+| Every signal has an author | Tool Gateway | The actor on `Deposited` is set by the gateway, never by the caller.
+| Autonomy is configured | Prover, Console, Ledger | Each approval path reads the autonomy settings before acting.
+|===
+
+== Settings
+
+One file holds all tunable behaviour.
+The notation below is neutral. Values are examples.
+
+----
+[clock]
+tick            = "5m"
+lease           = 2          # ticks
+
+[signals]
+max_strength    = 5
+
+[decay]                      # ticks before a request loses one unit
+review          = 2
+needs_test      = 4
+flag            = 6
+dead_end        = 24
+
+[threshold]
+needs_test      = { count = 3, caste = "worker", role = "tester" }
+failed          = { count = 1, caste = "worker", role = "debugger" }
+dead_end        = { count = 2, escalate = ["gardener", "ripening"] }
+misfit          = { count = 2, caste = "gardener" }
+flag            = { count = 2, distinct = "genome", do = "kill" }
+unanswered      = { ticks = 6, caste = "queen" }
+
+[warden]
+max_alive       = 12
+cooldown        = 2          # ticks
+watchdog        = { same_change = 2, reverts = 1, steps_without_progress = 5 }
+kills_to_retire = 3
+
+[prover]
+heartbeat       = { changes = 10, max_wait = "3m" }
+lock_after      = 5          # consecutive green heartbeats
+plan.code       = ["build", "affected_tests", "lint"]
+plan.test       = ["build", "fails_for_expected_reason"]
+plan.plot       = ["named_rule"]
+
+[probation]
+proven_changes  = 5
+low_risk        = { paths = ["**/*.spec.*", "docs/**"], signals = ["needs_doc"] }
+
+[quorum]
+plot            = { count = 2, distinct = "model" }
+
+[context]
+terrain_limit   = 4000       # tokens
+honey_limit     = 800
+garden_limit    = 800
+
+[models]
+rotation        = ["local-a", "local-b", "hosted-c"]
+queen           = ["hosted-x", "hosted-y"]
+
+[autonomy]
+cap_feature_frame  = "human"
+cap_practice_cell  = "auto"
+uncap              = "human"
+grow_plot          = "gardeners"
+change_contract    = "human"
+visual_and_wording = "human"
+merge_to_main      = "auto"
+
+[alarm]
+castes          = ["worker"]
+----
+
+Signal names in the settings are aliases.
+The dictionary file maps each alias to its emoji, so that the settings stay readable and the emoji can be changed in one place.
+
+* A change to the settings *MUST* be an event and take effect on the next tick.
+* The harness *MUST* refuse to start with a setting it does not recognise.
+
+[[observability]]
+== Observability
+
+=== The colony log
+
+For every session the colony log holds the genome, the full bundle, every model request and response, every tool call and its result, token counts and times.
+Each session carries the id of the `WakeRequested` that caused it.
+
+....
+ change  <--  ChangeSubmitted  <--  AgeantSpawned  <--  WakeRequested
+                                                             |
+                                                             v
+                          Deposited (x3)  <--  the three ageants that left them
+                                                             |
+                                                             v
+                                            ...  back to a human event
+....
+
+The console *MUST* be able to answer, for any change: which ageant, which genome, which signal, and which earlier events led to that signal, back to a human action or a proof result.
+
+=== Counters
+
+The Ledger *SHOULD* expose counts that need no interpretation: ageants by outcome, changes proven and reverted, signals deposited and decayed, kills, questions waiting for a human, tokens and time per caste.
+What these numbers mean for a team is outside this document.
+
+=== Replay
+
+Because rules are expressed in ticks and the random source is seeded, a harness *SHOULD* be able to replay a recorded run with model responses taken from the colony log.
+This is the main tool for tuning thresholds and decay.
+
+== Failure and recovery
+
+[%header,cols="2,4"]
+|===
+| Failure | Required behaviour
+| The harness stops | On start, views are rebuilt from the event log. Live sessions are treated as lost: leases expire, working copies are discarded.
+| A session crashes or hangs | The watchdog retires it. Its lease expires. Its request signal is still on the trail and triggers new work.
+| A model is unavailable | The Model Gateway reports it. The Sensor skips genomes on that model. A need with no remaining genome is unmet.
+| A human edits the workspace directly | The edit is recorded as a change by a human actor and goes through the same heartbeat.
+| The toolchain itself fails | The Prover issues no verdict, raises a question for the human, and pauses admission of writing ageants.
+| The event log is damaged | The harness refuses to run. Derived files are never used to rebuild the log.
+|===
+
+[[conformance]]
+== Conformance levels
+
+An implementation can be built and used in stages.
+Each level is useful alone and each tests one assumption of the concept.
+
+[%header,cols="1,2,4,3"]
+|===
+| Level | Name | Adds | Shows
+| 0 | Signals | Model Gateway, Runner, `deposit` and `finish`, dictionary | Whether small models pick a valid and fitting signal from a closed menu.
+| 1 | Loop | Ledger with trail view, Sensor thresholds, leases, `read` and `write`, Prover on one check | One signal becoming one proven change.
+| 2 | Physics | Clock, decay, cooldown, dead ends, watchdog, heartbeat with culprit search | That a colony stops trying what cannot be done.
+| 3 | Genomes | Queen sessions, `submit_genome`, rotation, probation, genome view | That missing skills can be designed on demand.
+| 4 | Honey | Honey store, ripeners, capping in the console, test ownership | A user story going from frame to green.
+| 5 | Garden | Garden store, gardeners, patrollers, plot quorum, seeding | Two stories sharing a structure.
+| 6 | Immunity | Soldiers, flags, quorum kill, entrance exam, canaries | That bad ageants are removed and good ones are not.
+|===
+
+The trust zones apply from level 1.
+A level 1 harness that lets an ageant write outside its lease is not conformant.
+
+== Open decisions
+
+These are left to implementations, and experience should settle them.
+
+* *How a symbol is addressed.* `path#symbol` assumes the harness can find a symbol's boundaries. A language-aware parser is more exact, and a line range is simpler.
+* *How "tests affected by a change" is computed.* A dependency graph is precise. Running the tests of the touched folders is a workable start.
+* *Whether working copies are full copies.* A view that shares unchanged files is cheaper. The requirement is only isolation.
+* *Granularity of the cache boundary.* Honey and plots change more often than the genome and less often than the task. A harness may use more than one boundary where its provider allows it.
+* *What counts as the same change* for the watchdog: identical patch, or equal after normalising whitespace and names.
+
+[appendix]
+[[binding]]
+== One possible binding
+
+This appendix is not normative.
+It maps the architecture onto one stack to show that nothing above depends on a particular product.
+
+[%header,cols="2,3"]
+|===
+| Architecture | TypeScript, Ollama, Git
+| Harness process | One Node.js program written in TypeScript.
+| Model Gateway | Calls to the local Ollama server over HTTP, with structured output used to constrain actions. Hosted models behind the same interface for the Queen and gardeners.
+| Workspace | A Git repository.
+| Working copy | One Git worktree per ageant under `ecosystem-home`.
+| Pending and proven lines | Two branches. One commit per change on the pending branch.
+| Culprit search and revert | `git bisect` over the batch, then `git revert`.
+| Main line and gate | The default branch, updated by fast-forward or pull request when the proven branch is green.
+| Event log | An append-only file of JSON lines, or an embedded database.
+| Zone separation | A separate operating system user for the harness, and command execution confined to the worktree.
+| Toolchain | The project's own build, test and lint commands, named in the proof plan.
+| Human Console | A command-line program first.
+|===

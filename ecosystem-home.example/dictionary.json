@@ -1,0 +1,25 @@
+[
+  {"alias": "missing",    "emoji": "🌱", "class": "request", "meaning": "This should exist and does not yet (a file, a method, a route)."},
+  {"alias": "needs_test", "emoji": "🧪", "class": "request", "meaning": "Needs a test."},
+  {"alias": "bug",        "emoji": "🐛", "class": "request", "meaning": "I suspect a bug here."},
+  {"alias": "dead_end",   "emoji": "⛔", "class": "request", "meaning": "Dead end. A fix was tried here and proof failed. Do not repeat it."},
+  {"alias": "review",     "emoji": "👀", "class": "request", "meaning": "Please review this."},
+  {"alias": "unsure",     "emoji": "❓", "class": "request", "meaning": "I am unsure what this does."},
+  {"alias": "cleanup",    "emoji": "🧹", "class": "request", "meaning": "Works, but needs cleaning up."},
+  {"alias": "needs_doc",  "emoji": "📝", "class": "request", "meaning": "Needs documentation."},
+  {"alias": "misfit",     "emoji": "🧩", "class": "request", "meaning": "This does not fit with other files or with an accepted decision."},
+  {"alias": "human",      "emoji": "🙋", "class": "request", "meaning": "No program can check this. A human must look."},
+  {"alias": "flag",       "emoji": "🚩", "class": "request", "meaning": "This ageant is wrong, lying, or polluted. Soldiers only."},
+
+  {"alias": "passed",     "emoji": "✅", "class": "verdict", "meaning": "Proof passed."},
+  {"alias": "failed",     "emoji": "❌", "class": "verdict", "meaning": "Proof failed."},
+  {"alias": "locked",     "emoji": "🔒", "class": "verdict", "meaning": "Do not edit. Proven and stable."},
+  {"alias": "reference",  "emoji": "⭐", "class": "verdict", "meaning": "Reference quality. Imitate this."},
+  {"alias": "capped",     "emoji": "🍯", "class": "verdict", "meaning": "Capped honey: approved scenario with a test."},
+  {"alias": "grown",      "emoji": "🍄", "class": "verdict", "meaning": "Grown plot: accepted decision."},
+  {"alias": "contract",   "emoji": "📌", "class": "verdict", "meaning": "Contract: fixed interface or schema."},
+  {"alias": "leased",     "emoji": "🚧", "class": "verdict", "meaning": "Leased: an ageant is editing this now."},
+  {"alias": "loop",       "emoji": "🔁", "class": "verdict", "meaning": "Loop detected on this target."},
+  {"alias": "terminated", "emoji": "💀", "class": "verdict", "meaning": "This ageant was terminated."},
+  {"alias": "alarm",      "emoji": "🚨", "class": "verdict", "meaning": "Colony alarm."}
+]

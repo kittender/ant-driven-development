@@ -1,0 +1,28 @@
+{
+  "id": "receptor-human-a",
+  "caste": "scout",
+  "role": "receptor",
+  "template": "receptor",
+  "author": "human:melinado",
+  "model": "",
+  "temperature": 0.2,
+  "seed": 0,
+  "prompt": "Does the target contain a choice that only a person can judge, such as visual design, user-facing wording, tone, or legal text? Answer yes if it was changed and is of that kind.",
+  "reacts_to": [],
+  "may_deposit": [
+    "🙋"
+  ],
+  "tools": [
+    "deposit",
+    "finish"
+  ],
+  "commands": [],
+  "limits": {
+    "steps": 2,
+    "seconds": 120,
+    "output_tokens": 256,
+    "malformed": 2,
+    "deposits": 1
+  },
+  "status": "probation"
+}

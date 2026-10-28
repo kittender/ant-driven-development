@@ -1,0 +1,8 @@
+# Experiment results stay local (large; summarised in docs/level0-findings.adoc and docs/HANDOFF.md)
+/evals/level0/results/
+/evals/pilot/results/
+/bin/
+/ecosystem-home/
+/_to_delete/
+node_modules/
+.DS_Store

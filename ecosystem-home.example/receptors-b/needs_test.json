@@ -1,0 +1,29 @@
+{
+  "id": "receptor-needs_test-b",
+  "caste": "scout",
+  "role": "receptor",
+  "template": "receptor",
+  "author": "human:melinado",
+  "model": "",
+  "temperature": 0.2,
+  "seed": 0,
+  "prompt": "Name a behaviour of the target that no existing test checks. Use what FACTS say about tests.",
+  "reacts_to": [],
+  "may_deposit": [
+    "🧪"
+  ],
+  "tools": [
+    "deposit",
+    "finish"
+  ],
+  "commands": [],
+  "limits": {
+    "steps": 2,
+    "seconds": 120,
+    "output_tokens": 256,
+    "malformed": 2,
+    "deposits": 1
+  },
+  "status": "probation",
+  "answer": "found"
+}

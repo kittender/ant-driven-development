@@ -1,0 +1,28 @@
+{
+  "id": "receptor-bug-a",
+  "caste": "scout",
+  "role": "receptor",
+  "template": "receptor",
+  "author": "human:melinado",
+  "model": "",
+  "temperature": 0.2,
+  "seed": 0,
+  "prompt": "Is there an input or situation for which the target gives a wrong result, fails, or is unsafe? Answer yes only if you can name the line and the input.",
+  "reacts_to": [],
+  "may_deposit": [
+    "🐛"
+  ],
+  "tools": [
+    "deposit",
+    "finish"
+  ],
+  "commands": [],
+  "limits": {
+    "steps": 2,
+    "seconds": 120,
+    "output_tokens": 256,
+    "malformed": 2,
+    "deposits": 1
+  },
+  "status": "probation"
+}

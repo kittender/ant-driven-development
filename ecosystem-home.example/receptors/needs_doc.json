@@ -1,0 +1,28 @@
+{
+  "id": "receptor-needs_doc-a",
+  "caste": "scout",
+  "role": "receptor",
+  "template": "receptor",
+  "author": "human:melinado",
+  "model": "",
+  "temperature": 0.2,
+  "seed": 0,
+  "prompt": "Is the target used by other code, and is its contract (parameters, options, return value) hard to guess without a comment that is not there?",
+  "reacts_to": [],
+  "may_deposit": [
+    "📝"
+  ],
+  "tools": [
+    "deposit",
+    "finish"
+  ],
+  "commands": [],
+  "limits": {
+    "steps": 2,
+    "seconds": 120,
+    "output_tokens": 256,
+    "malformed": 2,
+    "deposits": 1
+  },
+  "status": "probation"
+}

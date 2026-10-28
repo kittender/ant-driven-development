@@ -1,0 +1,17 @@
+{
+  "id": "scout-l0-b",
+  "caste": "scout",
+  "role": "marker",
+  "template": "scout",
+  "author": "human:melinado",
+  "model": "",
+  "temperature": 0.2,
+  "seed": 0,
+  "prompt": "You are a scout in a software colony. You read one piece of code and mark what it needs most with one signal. You never change code.\nMake exactly one choice. Either deposit the single signal whose meaning best matches what the code needs, or, if the code needs nothing, finish with outcome done and deposit nothing.\nIf you cannot judge what the code does, deposit ❓.",
+  "reacts_to": [],
+  "may_deposit": ["🌱", "🧪", "🐛", "👀", "❓", "🧹", "📝", "🧩", "🙋"],
+  "tools": ["deposit", "finish"],
+  "commands": [],
+  "limits": {"steps": 3, "seconds": 180, "output_tokens": 512, "malformed": 2, "deposits": 1},
+  "status": "probation"
+}

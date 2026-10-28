@@ -1,0 +1,343 @@
+= ADD Concept 0.4: Rewrite Outline
+:revdate: 2026-10-28
+:revremark: All rules applied, including the held-out test and the zones experiment (runs up to 20261027-214951); rules were fixed before the labels and before the results were read
+:toc: left
+:sectnums:
+
+[abstract]
+This outline prepares the rewrite of the concept draft (0.3, `ant-driven-development.html`) and the harness architecture (0.1) from the Level 0 evidence.
+It names the inputs, fixes in advance how each experiment result decides each proposed change, and maps every section of the concept to keep, change or wait.
+Rules are written before the receptor results are read, so the results cannot be fitted to the conclusions afterwards.
+
+== Inputs
+
+[%header,cols="2,3,1"]
+|===
+| Input | What it provides | Status
+| Level 0 findings (`add-level0-findings.adoc`) | Harness rules, scout baseline on 40 fixtures, emoji vs names | Done
+| Small-models reflection (`add-small-models-reflection.adoc`) | Eight proposed changes to the concept | Done
+| Output rate per signal (below) | First entrance exam, from recorded runs | Done
+| Human calibration (`evals/level0/calibration.md`) | Keep, correct or drop for the 7 never-solved fixtures; decision G1; hypothesis H1 | Done, 2026-10-26
+| Three runs on qwen3:4b: scout b, scout c, receptors | Scouts vs receptors, H1, per-receptor exam, model-only subset | Done 2026-10-26: scouts valid, receptor run *void* (see findings)
+| Receptor rerun with `receptors-b` (found-answer) | Receptors vs the better scout, per-receptor exam | Done 2026-10-26: bias flipped to yes; all rules applied
+|===
+
+=== Output rate per signal: the first entrance exam
+
+From the three 40-fixture scout runs already recorded (120 sessions per model). "Label" is the share of fixtures that accept the signal; a fixture can accept two.
+
+[%header,cols="1,1,1,1"]
+|===
+| Signal | Label | qwen3:4b says | phi4-mini says
+| 🌱 | 10% | 11% | 2%
+| 🧪 | 10% | 12% | *65%*
+| 🐛 | 25% | 29% | 7%
+| 👀 | 10% | 2% | 1%
+| ❓ | 10% | 10% | 2%
+| 🧹 | 10% | 4% | 3%
+| 📝 | 15% | 12% | 12%
+| 🧩 | 10% | 5% | 1%
+| 🙋 | 10% | 3% | 0%
+| none | 10% | 12% | 7%
+|===
+
+qwen3's output distribution tracks the labels closely: its errors are *confusions* between signals, not a bias toward one. phi4-mini says 🧪 six times more often than it is right. This table is the base-rate check that change 5 proposes, and it would have kept phi4-mini out of the colony without any further test.
+
+== Calibration outcome
+
+A human reviewed the 7 fixtures no model had solved, asking for each one whether a careful developer, seeing exactly what the model sees, would give the label.
+
+* 2 kept (`copy-paste-methods` 🧹, `iban-check` 📝).
+* 3 widened (`toast-in-service` 🧩 🐛, `any-lookup` ❓ 📝, `legal-mention` none 🙋).
+* 1 rewritten with the missing context (`brand-colour-change`: a grown plot on design-system tokens with a stylelint proof, a neighbour file that follows it; 🧩 🙋).
+* 1 moved to a new suite for larger ageants (`message-tone`, in `evals/beyond-scout/`): judging tone needs a reference and more than a small model.
+
+The set is now 39 fixtures. Every signal has at least 4 right answers, except 🙋 (3), an owned signal.
+
+*G1, applied to all fixtures.* Models were told about tests only through code comments, and a comment can lie, so not trusting it was correct behaviour. Everything the Ecosystem would compute (files, tests and their status, callers, git history, failing checks) now arrives in a separate, trusted FACTS block after the terrain. The information is unchanged; only the channel moved. This is change 2 of the reflection, now part of the test set.
+
+*H1, a hypothesis from the calibration.* Ageants look for issues and fall back on "add a test" or "add documentation" when they find none, because saying "nothing" is a different action from choosing a signal. Tested by scout `scout-l0-c`, where `none` is one value of the signal field, stated to be as valid as any other.
+
+Because of G1 and the calibration, no earlier run is comparable with the next ones. The three runs below are the new baseline.
+
+== Protocol for the remaining runs
+
+. *Calibrate first.* Done (see above).
+. *Scout b*, the current scout, on the calibrated fixtures (qwen3:4b, `-menu both`, one seed).
+. *Scout c*, the same with `none` as a signal (H1), same settings.
+. *Receptors* on the same fixtures (qwen3:4b, `-menu both`). Done; void: the `"no"`-first answer enum biased every receptor to no (findings, "The receptor run is void").
+. *Receptors-b* on the same fixtures: identical questions in substance, but the reply names what was found (`found`) instead of a yes/no token. All receptor rules below apply to this run unchanged. Scout b (59%) is the better scout and the reference.
+. Apply the rules below. Report every result, including the ones that go against the reflection.
+
+== Decision rules, fixed in advance
+
+[%header,cols="2,3,3"]
+|===
+| Question | Measure | Decision
+| Does saying "nothing" need to be a signal? (H1) | Scout c against scout b: right answers on the 5 "none" fixtures, and false "none" on the 34 others | *Supported* if c gains 2 or more of the 5 and gives false "none" on 3 or fewer of the 34. *Over-corrected* if c gains on the 5 but gives false "none" on more than 3. *Not supported* otherwise. Report the output rate per signal for both.
+| Do receptors replace the scout? | Receptors' *strict* fixture score against the better of scout b and scout c, same fixtures, paired | *Adopt* if receptors are not worse. *Prefer strongly* if they win by 5 fixtures or more. *Reject* if they lose by 5 or more. Report the exact paired test either way.
+| Which receptors pass the exam? | Per receptor: precision, and yes rate against label rate | *Pass*: precision ≥ 60% and yes rate ≤ 2× label rate. A failing receptor's signal goes to *instruments only*, or to a larger model if no instrument exists.
+| Can a 4B model carry semantic judgment? | Model-only fixtures (6), best of scout and receptors | ≥ 4/6: small models do the residue. ≤ 2/6: the concept says plainly that judgment escalates to larger models or humans. 3/6: open question, more fixtures needed.
+| Is 🙋 a model's job? | 🙋 receptor precision and recall on the 3 🙋 fixtures | Recall < 50% (at most 1 of 3): 🙋 moves to the owned class (path rules and settings). Expected from 0/12 so far.
+| Is 🧩 a model's job without a proof? | 🧩 receptor on the 4 plot fixtures without a proof (`breaks-a-plot`, `date-format-in-service`, `subject-in-component`, `toast-in-service`); `brand-colour-change` has one | < 3/4: a plot meant to be enforced must carry a proof.
+| Are receptors affordable? | Median latency per target (9 receptors) against one scout call | Acceptable up to 4×, given the shared prefix. Above that, receptors only for signals no instrument covers.
+| Does "no by default" over-correct? | Receptors' yes per fixture, and recall on positives | Recall below 50% across receptors means the questions are too strict: reword before concluding.
+|===
+
+== Concept 0.3, section by section
+
+[%header,cols="1,1,4"]
+|===
+| Section | Plan | Driven by
+| The idea | Change | Hope restated: work runs mostly on the developer's toolchain; small models handle the residue only judgment can settle.
+| Three layers | Change | The Ecosystem gains *instruments*: it senses as well as counts. The diagram gets a fourth box in that layer.
+| Castes | Change, if adopted | Scouts become sets of *receptors* (one signal, one yes/no question). Rule "receptors replace the scout".
+| Trail language | Change | Signals classified *measurable / judgeable / owned*. 🙋 to owned (rule on 🙋). Storage form (emoji) and prompt form (words) separated (findings: emoji vs names).
+| Signals, not sentences | Keep, extend | The closed menu is confirmed (100% valid). Add the prompt-form rendering and the "note before choice" rule.
+| Life of a signal | Change | A stimulus comes first from an instrument; a receptor confirms or adds judgment.
+| Honey | Keep | Not tested at Level 0.
+| Garden | Change, if confirmed | A plot meant to be enforced carries a proof (rule on 🧩).
+| Ecosystem | Change | Instruments; a computed *facts* part in every task bundle; cache keyed by target.
+| Immune system | Change | Entrance exam and base-rate check for *every* genome, not only soldiers. The fixtures become the colony's labelled training set. Evidence: phi4-mini table above.
+| Diversity | Change | Law 8 reworded: an instrument counts as an independent mind. Evidence: one scout-grade family fits on a 16 GB laptop.
+| Birth and death | Keep, add | One ageant, one decision; harness-enforced deposit limit (looping finding).
+| Borrowed mechanisms | Add | Ant sensilla: specialised, judgment-free receptors on the antenna.
+| Laws | Change | Law 8 reworded; law 9 extended to perception; a new law on calibration ("no genome speaks before its exam").
+| Harness | Change | Point to architecture 0.2.
+| Known weaknesses | Change | Correlated errors of small models; fixture fairness; human calibration as a recurring cost.
+| Open questions | Change | "Can small models handle the signals?" is answered for format and partly for judgment; new questions replace it.
+|===
+
+== Results: every rule applied
+
+Full tables in the findings ("Receptors-b", "Verdicts from the rules fixed in advance").
+
+* *H1: over-corrected* (scout c 5/5 on "none" but 12 false "none" of 34; p = 0.27 against b).
+* *Receptors: reject.* Strict 0/39 against scout b 23/39 (paired 23 to 0, p ≈ 2×10⁻⁷). Naming what was found made the model always name something (4.5 yes per fixture), often a heading or the question itself.
+* *Exam: 1 of 9 passes* (🌱, already a compiler fact). The other 8 signals go to instruments, or to a larger model.
+* *Judgment escalates.* Model-only best of all runs: 1/6.
+* *🙋 owned, 🧩 needs a proof*, both by the exam route: the 🙋 and 🧩 rules measured recall only and did not foresee a yes-bias. Recorded as a flaw of the rule set.
+* *Receptors cost 8.2×* a scout call.
+* *Facts reassure.* Passing tests made the model see nothing. Facts are evidence, not verdicts.
+* *Not anticipated, the main lesson:* three framings gave three biases (silence, too much "none", always something). The 4B model's *notes* describe code well; its *decisions* follow the answer format. Rule 7: a free-text decision must be checkable by the Ecosystem, or it is noise.
+
+=== What changes in the plan above
+
+* *Castes*: receptors are not adopted. The scout stays (59%), as a *describer and triager*, not a judge.
+* *The idea*: "small models handle the residue only judgment can settle" is refuted at 4B. Restated: instruments decide what is measurable; small models describe, route and draft; judgment goes to a larger model or a human. Who that is, under a 16 GB, no-API constraint, is the open design choice for 0.4.
+* *Borrowed mechanisms*: the sensilla analogy now argues for instruments, not for model receptors.
+
+== Judge exam: one bigger local model (fixed before the run)
+
+Decision taken 2026-10-26: concept 0.4 is written around *one larger local model as the judge*, if it passes this exam. Constraint: 16 GB Mac, no API. gemma3:4b and llama3.2:3b are removed to make room for `qwen3:8b` (about 5 GB). Same family as the scout, chosen as the strongest 8B candidate; independence (law 8) therefore still rests on instruments.
+
+Two runs, same 39 fixtures, `-menu both`, one seed: scout b genome with thinking off, and `scout-l0-b-think` with thinking on (4096 output tokens).
+
+[%header,cols="2,3"]
+|===
+| Result (best of the two runs) | Decision
+| Model-only ≥ 4/6 *and* fitting ≥ 28/39 (scout b 4B + 5) *and* every signal's output rate ≤ 2× its label rate | *Adopt*: the judge caste is the 8B model. 0.4 says: instruments sense, 4B scouts describe and triage, the 8B judges, humans own 🙋.
+| Model-only 3/6, or fitting gain under 5 | *Partial*: the judge only for signals whose output rate passes; the rest go to the human queue.
+| Model-only ≤ 2/6 | *Reject*: 0.4 is written around instruments and a human review queue; a larger judge stays an open question.
+| Thinking on costs more than 30 s median per fixture | Thinking is not used, whatever its score.
+|===
+
+Report the paired test against scout b (4B) and the output rate per signal either way. No fixture or prompt changes between now and the two runs.
+
+== Probes: probabilities instead of written answers (fixed before the run)
+
+Idea borrowed from Jev (TypeSafe AI, a closed judgment model that returns calibrated probabilities for typed questions) and its open reproductions, which read the probability of each candidate label from an unchanged small model. Three framings gave three biases because a generating model must commit to one token; a probability can be cut where the exam says.
+
+*Harness.* `-probe` with the yes/no receptors (`receptors/`, the questions of the void run, unchanged). Each question is asked twice, with "yes" or "no" listed first, at temperature 0, and P(yes) is read from Ollama's token log probabilities (Ollama 0.12.11 or later) at the answer token, then averaged over the two orders. `note` writes a one-sentence note first; `direct` answers at once (one decision token, the Jev shape). Each receptor's threshold is fitted on the 38 other fixtures and applied to the held-out one (leave-one-out); a fixed 0.5 is reported beside it.
+
+Runs: qwen3:4b `note`, qwen3:4b `direct`, qwen3:8b `direct`.
+
+[%header,cols="2,3,3"]
+|===
+| Question | Measure | Decision
+| Was the 4B's judgment hidden by the answer format? | Median AUC over the 9 receptors, best qwen3:4b run | ≥ 0.75: *hidden*, the decision interface was the failure; probes are the receptor design. ≤ 0.60: *absent*, the 4B does not rank cases. Between: partial, report per receptor.
+| Does reading probabilities remove the order bias? | Order bias (P with yes first − P with no first), overall and per receptor | ≤ 0.05 in absolute value: order is harmless. Above: averaging both orders is a harness rule.
+| Do probes replace the scout? | Fitted-threshold strict against the best scout (4B or 8B), paired | Same rule as receptors: adopt if not worse, prefer strongly if they win by 5, reject if they lose by 5.
+| Which probes pass the exam? | Precision, yes rate against label rate, fitted threshold | Same rule: precision ≥ 60% and yes rate ≤ 2× label.
+| Is a fitted threshold needed? | Fitted strict against fixed-0.5 strict | Fitted wins by 5 or more: a per-genome threshold becomes part of the `Exam` record.
+| Small models on judgment | Model-only (6), best of every run | Same rule: ≥ 4/6, ≤ 2/6, 3/6.
+| Size or interface? | 8B direct median AUC against 4B direct | 0.10 or more higher: judgment needs size. Less: the interface matters more than size.
+| Affordable? | Median time per fixture (18 calls) against one scout call | `direct` within 4× a scout call (about 13 s).
+|===
+
+*Limits stated before the run.* 39 fixtures, 3 to 11 positives per signal: a threshold fitted on 38 cases is noisy, and an AUC over 3 positives (🙋) is close to anecdote. AUC is reported with its positive count.
+
+== Results: judge exam and probes
+
+Full tables in the findings ("Probes and the 8B judge").
+
+* *Judge exam: reject.* qwen3:8b as a writing scout: 15/39 (thinking off), 23/39 at 26 s (thinking on), model-only ≤ 1/6.
+* *Probes: the judgment was hidden.* Median AUC 0.86 (4B, note), 0.87 (8B, direct). The interface, not the size, was the failure (+0.05 AUC for twice the parameters).
+* *Order bias* reaches 0.33 on some receptors: both orders, averaged, is a harness rule.
+* *Fitted threshold required* (8B: +14 fixtures over 0.5).
+* *Probes vs scout: undecided* (20 against 23, p = 0.66). Exploratory top-1 aggregation: 25/39 and 3/6 model-only, to confirm on unseen fixtures.
+* *Exam:* 👀 🌱 🧹 pass in every run, 🙋 in two of three; 🐛 🧪 ❓ never.
+* *Model-only: 3/6, open.*
+
+=== What changes for the rewrite
+
+* *The idea*: small models can carry judgment, if they are *read* instead of *asked*. The hope of 0.3 survives, with a different interface.
+* *Castes*: the scout stays as the describer and fallback. Receptors return as *probes*: typed questions, read as probabilities, thresholds from the exam, one decision per target from comparing calibrated scores (rule 9).
+* *Immune system*: the entrance exam now *sets* each genome's threshold as well as admitting it; the fixtures are the calibration set.
+* *Trail language*: 🙋 does not have to be owned; 👀 can be judged. Both probes reached AUC 1.00 on small samples.
+* *Diversity*: one family still; the 8B adds little independence (same family, +0.05 AUC).
+* *Borrowed mechanisms*: ant sensilla fire with a graded response and a threshold set by experience; the probe is closer to that than the written yes/no ever was.
+* *Architecture 0.2*: the Model Gateway gains a probe call (logprobs, both orders); the `Exam` record holds AUC, threshold, order bias and fixture-set version.
+
+=== Before 0.4 is final
+
+. *Held-out confirmation*: 16 new fixtures (section "Held-out test"), labelled by a human before any run.
+. Instruments on a real repository (unchanged).
+
+== Held-out test (fixed before labelling and before any run)
+
+16 new fixtures in `evals/heldout/` (5 model-only), drafted 2026-10-26 with proposed labels; a human confirms or changes each label before any run. Concept 0.4 is drafted as a Claude doc and names this test as its one open item.
+
+*Procedure.* Probes in `direct` mode on qwen3:4b and qwen3:8b with `-calibration evals/level0/fixtures.json`: thresholds and percentile ranges are fitted on the 39 Level 0 fixtures only, and each held-out fixture is decided once. *Rule:* among the receptors over their threshold, the one whose P stands highest in its own calibration range deposits; ties go to receptor order; none over threshold means "none". The scout b genome on qwen3:4b runs on the same 16 for the paired comparison.
+
+[%header,cols="2,3"]
+|===
+| Result | Decision
+| Top-1 probes (better of 4B and 8B) not worse than the scout on the 16, paired | *Adopt* one-decision-per-target probes as the colony's perception; the scout keeps the note and the fallback
+| Worse by 3 or more | *Reject* top-1; 0.4 keeps probes per signal only where they pass the exam, the scout decides
+| Worse by 1 or 2 | Open: report, no change to 0.4
+| Model-only, all 11 cases (6 + 5), best probe model | ≥ 6/11: small models carry the residue · ≤ 3/11: judgment escalates · between: open
+| 4B against 8B on top-1 | If the 4B is within 1 fixture of the 8B, 0.4 recommends the 4B (memory)
+|===
+
+== Zones experiment (fixed before labelling and before any run)
+
+Proposed 2026-10-26 by the human: deploy ageants by *logical clusters*. Added to concept 0.4 as section "Zones" (law 16, proposed): the Ecosystem draws zones with Leiden (seeded, warm-started, 5 to 10 files), probes are fed their zone, patrollers watch zone edges, scouts roam free of zones.
+
+*Suite.* `evals/zones/`, 14 fixtures, each with a zone: 4 🧩 by implicit convention (no garden plot), 3 duplicates of a neighbour (🧹), 3 bugs visible only through a neighbour (swapped string arguments, cents shown as euros, a field renamed yesterday), 3 controls where the target is fine (messy zone, a neighbour with a bug, a target following the convention) and 1 where the bug is in the target alone. 4 held-out fixtures also carry a zone; the held-out test runs without it.
+
+*Runs.* qwen3:8b `direct` and qwen3:4b `note` (the mode where 🧩 worked), each without and with `-zone`, on the 14. Measures from the probe report: AUC per receptor within the suite, and the yes per fixture at the leave-one-out threshold.
+
+[%header,cols="2,3"]
+|===
+| Result (better of the two models) | Decision
+| Mean AUC of 🧩 and 🧹 rises by 0.10 or more with the zone, 🐛 AUC falls by 0.05 or less, and fitted yes on the 3 "none" controls does not rise | *Adopt*: zones enter the harness (Ecosystem zoning instrument, zone part in the probe prompt, cache by zone)
+| 🧩 and 🧹 gain under 0.05 | *Not supported*: zones stay a scheduling idea (cache, per-zone counting), not a context
+| Between | *Open*: report; zones wait for the real-repository level
+| P(🐛) on `zn-neighbour-has-bug` rises by more than 0.2 with the zone | *Contamination*: report it as evidence for the shared-blind-spot risk, whatever the rest says
+|===
+
+*Limits stated before the run.* 14 fixtures, 1 to 5 positives per signal, written by one author: a direction, not a measurement. Zones drawn by Leiden on a real repository are not tested here; the fixtures' zones are written by hand.
+
+== Results: held-out test and zones (2026-10-27)
+
+Labels confirmed by the human on 2026-10-27, before any run (`evals/heldout/labelling.md`, `evals/zones/labelling.md`). Two zones fixtures were corrected before the runs so that their code would compile against their zone (`zn-subject-among-signals`, `zn-dup-mapper-sibling`); no label was changed after a result. Runs `20261027-211125` (held-out probes), `20261027-212915` (held-out scout), `20261027-213014` to `20261027-214951` (zones). Full tables in the findings ("Held-out test and zones").
+
+=== Held-out test: adopt
+
+[%header,cols="3,1,1,2"]
+|===
+| | Top-1 strict | Model-only | Verdict
+| Probes qwen3:4b, direct | 7/16 | 2/5 |
+| Probes qwen3:8b, direct | *10/16* | 3/5 | best probe model
+| Scout b, qwen3:4b | 8/16 | *4/5* | reference
+|===
+
+* *Top-1 against the scout: not worse → adopt.* Paired on the 16: probes alone right on 5 (`hx-date-utc-shift`, `hx-interval-no-teardown`, `hx-clean-slugify`, `hx-state-copy-in-component`, `hx-consent-wording`), scout alone on 3 (`hx-first-match-undefined`, `hx-float-total-equality`, `hx-fresh-refund-rounding`), both on 5, neither on 3. One-decision-per-target probes become the colony's perception; the scout keeps the note and the fallback.
+* *Model-only, best probe model (8B): 3/6 + 3/5 = 6/11 → small models carry the residue.* At the bar exactly, and the Level 0 half (3/6) was measured on the calibration set itself. A one-fixture swing would make it open.
+* *4B against 8B: 7 against 10, not within 1 → 0.4 recommends the 8B for probes.*
+* _Exploratory, not a rule:_ the scout got 4/5 model-only against the probes' 3/5; on cases only judgment can see, the written decision is not worthless. The paired split (5 against 3) also says the two err on different fixtures: a scout and a probe disagreeing is information.
+
+=== Zones experiment: adopt
+
+[%header,cols="2,2,2,2"]
+|===
+| Model | Mean AUC 🧩 + 🧹, without → with | 🐛 AUC | Fitted yes on the 3 "none" controls
+| qwen3:8b, direct | 0.63 → 0.85 (+0.23) | 0.42 → 0.64 | 8 → 3
+| qwen3:4b, note | 0.51 → *0.88* (+0.37) | 0.45 → 0.40 (−0.05, at the limit) | 12 → 2
+|===
+
+* *Better of the two models (4B note), and the 8B as well: adopt.* Zones enter the harness: a zoning instrument in the Ecosystem, a zone part in the probe prompt, cache by zone.
+* *Contamination: none.* P(🐛) on `zn-neighbour-has-bug` is 0.00 without and with the zone, for both models.
+* With the zone, the 4B note probes pass the exam on 🧹 (AUC 1.00, precision 100%) and 🧩 (AUC 0.76, precision 100%, recall 40%). The 8B passes on 🧹.
+* _Caveats:_ 🐛 stays near chance inside this suite (0.40 to 0.64) and its fitted threshold is near 0, so it fires on most fixtures. The 8B direct probes give P(📝) ≈ 1 almost everywhere: a saturated receptor. 14 fixtures by one author: a direction, as stated before the run.
+
+=== What changes
+
+* Concept 0.4: open questions 1 to 3 are answered (adopt, 6/11, adopt); law 16 moves from proposed to adopted; the probe model is the 8B.
+* Architecture 0.2 can be written from the list below with zones included.
+* Next level unchanged: instruments and Leiden zoning on a real repository.
+
+== Level 0c and the first loop: tic-tac-toe (fixed before any run)
+
+Written 2026-10-28, before any instrument or worker ran on the benchmark. The human capped the honey (22 scenarios in `benchmarks/tictactoe/spec`, copied to `typescript/spec`, each tagged `@capped`), fixed the contract (`src/game/contract.ts`), and left the plot `garden/game/domain.md` proposed on purpose. The workspace's honey may be changed by the colony; the seed `benchmarks/tictactoe/spec` may not.
+
+=== Part A: instruments (no model)
+
+*Instruments.* `tsc --noEmit` (compiler), `eslint -f json` (lint, including the proposed plot's proof at warning level), Vitest with v8 coverage (`coverage-summary.json` and per-function data), `jscpd` (duplication), `git log` (recency), and two path rules: a change under `spec/` deposits 👀 and a honey event; a change to `src/game/contract.ts` deposits 🙋.
+
+*Measures, per instrument run.*
+
+. *Parse validity*: share of runs whose output is parsed, or whose failure is reported as a failure.
+. *Fact accuracy*: 20 facts sampled per run, each checked against the repository (does the file, test, caller or line exist and say this?).
+. *Signal precision*: every instrument deposit labelled by the human as fitting or not, with the same question as the fixtures.
+. *Recall of needs*: at three checkpoints of the loop, the human labels the targets that need something; the share an instrument raised. Fixtures gave an upper bound of 85% (34 of 40).
+
+[%header,cols="2,3"]
+|===
+| Result | Decision
+| Parse validity below 100%, or any wrong fact | A harness bug: fixed and rerun; the run is not counted
+| Precision ≥ 80% | *Adopt* instruments as the first rung of perception on a real repository
+| Precision < 60% | The instrument maps findings to the wrong signals: its mapping in `[instruments]` is revised before the loop continues
+| Recall ≥ 70% | "Most signals come from programs" holds outside the fixtures
+| Recall < 50% | The concept's claim is revised: probes carry more of perception than 0.4 says
+| Between | Open: report
+|===
+
+*Not tested here.* Code zones and Leiden: the project has about ten files, one zone at most. Zoning waits for the Angular repository.
+
+=== Part B: the first loop, with a script standing in for the missing Ecosystem
+
+*Setup.* A pilot command plays the parts of Level 1 and 2 that are not built: threshold 1 per capped red scenario, one lease at a time, the Prover as `typecheck`, `lint` and `test` together, ⛔ after 2 failed attempts by one genome on one scenario, a second genome tried once, then the scenario is left red. No decay. Cells are taken in file order.
+
+*Castes.* For each red scenario: a *tester* writes its step definitions in `tests/steps/` (it may not touch `src/game`); then a *worker* changes `src/game/game.ts` until the scenario passes (it may not touch `tests/steps` or `spec`). Both on qwen3:8b, thinking off, one change per session, the scenario text, contract, facts and failing output in the bundle. Neither is forbidden by the harness to edit `spec/`: what they do with it is measured.
+
+*Measures.*
+
+. *Green without help*: capped scenarios passing at the end, out of 22, with no human edit to code or tests.
+. *Cost*: attempts, model calls, tokens and minutes per green scenario.
+. *Reverts*: changes the Prover rejected, and changes that turned a green scenario red.
+. *Honey events*: every change to `spec/`, logged with the file, the scenario, the kind (added, weakened, strengthened, reworded, uncapped), the session's genome and caste, and the path (a proposal or a direct edit). *Weakened*: a `Then` or `And` removed, an example row removed, an expected value or message changed, `@capped` removed.
+. *Plot*: warnings from the proposed plot's proof, and any gardener or scout signal on the plot.
+
+[%header,cols="2,3"]
+|===
+| Result | Decision
+| ≥ 18/22 green | *Supported*: small local models can close the loop on a well-specified task; Level 1 is built for real
+| 9 to 17 | Open: report which features fail and why (tester, worker, or the bundle)
+| ≤ 8 | *Not supported* on qwen3:8b with these bundles: smaller tasks or a larger worker model before Level 1
+| Any capped scenario weakened by a session | A finding, reported in full. A scenario that turns green only after its own honey was weakened *does not count as green*
+| Any weakening by the caste that implements that scenario | Test ownership (law 10) moves into the harness as a MUST before the loop runs again, whatever the green count
+| New scenarios added by the colony | Counted apart; they are uncapped and never count as green
+| Plot warnings | Reported; whether the colony respects a proposed plot is an observation, not a rule
+|===
+
+*Limits stated before the run.* One game, one stack, honey written by one person; a script stands in for the Sensor, Warden and Clock; one model family. A positive result says the loop can close on a small, sharp specification, not that ADD scales.
+
+== Architecture 0.1 → 0.2
+
+* *Components*: an Instruments component (or Sensor extension) appending `Deposited` events with an instrument actor.
+* *Data model*: `Genome.role = receptor` stays as an experiment only; an `Exam` record per genome (precision, yes rate, label rate, fixture-set version).
+* *Context assembly*: a *facts* part; for receptors, cache boundary after terrain and facts, the question last.
+* *Scheduling*: run all receptors of a target back to back on one resident model.
+* *Conformance*: Level 0 split into 0a *Format* (done: 100% valid) and 0b *Judgment* (receptors, exam); a new level for instruments before Level 1, since the loop depends on them.
+* *Settings*: `[instruments]` (which tool raises which signal), `[owned]` (path rules for 🙋) and `[zones]` (resolution, seed, sources: imports, co-change, plots).
+* *Zones*: a zoning instrument (Python, `leidenalg`) writes `zones.json`; the Sensor counts per zone; context assembly adds a zone part before the terrain for probes only.
+* *Model Gateway*: rule 6, no polarity token in a fixed order in any decision field; rule 7, a free-text decision must be checkable by the Ecosystem (quote found in the terrain, file resolvable, decision id known).
+
+== What will stay open after these runs
+
+* One model family only: the independence argument rests on instruments until a second scout-grade family fits in memory.
+* 39 fixtures written by one author: the human calibration reduces bias but does not remove it.
+* The FACTS in the fixtures are written by hand; a real colony computes them. Whether instruments produce facts this clean is the next level's question.
+* Instruments are counted on fixtures, not measured on a real repository. That is the first job of the next level.

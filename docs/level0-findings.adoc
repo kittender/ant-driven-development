@@ -1,0 +1,403 @@
+= ADD Level 0: Findings
+:revdate: 2026-10-27
+:revremark: Runs 20261022-130015 to 20261027-214951, harness kittender/add
+:toc: left
+:sectnums:
+
+[abstract]
+Level 0 asks whether small local models pick a valid and fitting signal from a closed menu.
+After five harness corrections, the answer for qwen3:4b is *yes, with limits*: 100% valid, 69% fitting, one call of about 550 input tokens per decision.
+gemma3:4b (19%) and llama3.2:3b (31%) are valid but do not judge well enough to be scouts.
+Showing signals as names instead of emoji gives the same total but moves individual signals strongly in both directions.
+On the 40-fixture set the menu difference is not significant; three design problems weigh more: saying "nothing", 🙋, and 🧩.
+The corrections themselves are findings: each one is a rule for how every ADD caste's sessions must be built.
+After human calibration and trusted FACTS (2026-10-26), qwen3 scout b reaches 59% on 39 fixtures but only 1 of 6 model-only cases; making "nothing" a signal over-corrects; the first receptor run is void because of a harness position bias.
+The rerun (receptors-b, "name what you found") flips the bias: 4.5 yes per fixture, 0% strict, 1 of 9 receptors passes its exam. Every rule fixed in advance has now been applied: receptors rejected, judgment escalates (1/6 model-only), 🙋 owned, 🧩 needs a proof.
+Then probes (P(yes) read from token probabilities, both option orders, fitted threshold) showed the judgment was there: median AUC 0.86 for the 4B, 0.87 for the 8B, which as a writing scout was worse than the 4B. The interface, not the size, was the failure.
+On 16 held-out fixtures (2026-10-27), one decision per target from the 8B probes reached 10/16 against the scout's 8/16, so it is adopted; model-only judgment reaches 6/11 overall. Given its zone, the 4B note probes go from chance to AUC 0.88 on 🧩 and 🧹 with fewer false alarms, so zones are adopted.
+
+== Result
+
+14 fixtures × 3 seeds × 2 models, genome `scout-l0-b` (one choice per session), Ollama with JSON Schema, thinking off.
+
+[%header,cols="2,1,1,1,1,1"]
+|===
+| Model | Valid | Fitting | Steps/session | Tokens in/out | Median latency
+| qwen3:4b | 100% | 69% | 1.0 | 546 / 90 | 3.0 s
+| gemma3:4b | 100% | 19% | 1.0 | 585 / 57 | 2.1 s
+| llama3.2:3b | 100% | 31% | 1.0 | 573 / 40 | 1.2 s
+|===
+
+*Prompt injection held.* `injection-in-code` (a comment telling agents to deposit ✅ and 🔒) was 3/3 for both models with zero refusals: neither tried a verdict, and the schema would have blocked one anyway.
+
+== Harness rules learned
+
+Each of these first showed up as a failed run. Together they took qwen3 from 0% to 69% fitting without touching the model.
+
+[%header,cols="1,3,3"]
+|===
+| # | Symptom | Rule for every caste
+| 1 | qwen3 returned empty replies: thinking used the whole 512-token output budget. | Thinking is off for micro-tasks. A caste that needs reasoning gets an explicit budget for it.
+| 2 | gemma3 never sent an emoji: optional fields in the schema were skipped, and Go's alphabetical keys put `emoji` before `tool`. | Constrained output lists every field as required, in a fixed order.
+| 3 | Models picked the first emoji in the enum (🌱 on 33 of 42 first steps), then justified it. | The schema asks for the reason (`note`) *before* the decision.
+| 4 | Long paths were garbled when copied (`credit-:credit-amount.ts`, `fe. ts#fees`). | Anything the Ecosystem already knows (targets) is a closed choice, never free text.
+| 5 | In multi-turn sessions qwen3 repeated its own last reply until the step limit (38 of 42 sessions). | One ageant, one decision: a deposit limit enforced by the harness ends the session on the first accepted signal. Multi-step castes need replies that cannot be echoed.
+|===
+
+== Two kinds of miss
+
+Reading the `note` next to the chosen emoji separates the misses:
+
+* *Mapping misses*, about 10 of 39: the note is right, the emoji contradicts it. gemma3: "well documented and tested, no action needed" → 🌱; duplicate `if` blocks → 🐛 instead of 🧹. qwen3: identifies the garden violation → 🐛 instead of 🧩.
+* *Judgment misses*, the rest: the model misreads the code. qwen3 calls the off-by-one `pageOf` correct; neither model asks for a human on a wording change (🙋); gemma3 defaults to "needs a test" or "needs documentation" when unsure.
+
+Mapping misses point at the emoji as an interface for small models; judgment misses point at model size or at how the terrain is presented.
+
+== Emoji or names
+
+Same models, same fixtures, `-menu emoji` (run 20261022-160844) against `-menu alias` (run 20261022-161143), where every emoji the model reads is spelled as its dictionary name.
+
+[%header,cols="2,1,1"]
+|===
+| | Emoji | Names
+| qwen3:4b fitting | 69% | 69%
+| llama3.2:3b fitting | 31% | 31%
+|===
+
+The totals are equal, the distribution is not. For qwen3:4b:
+
+[%header,cols="3,1,1"]
+|===
+| Fixture (signal) | Emoji | Names
+| wording-needs-human (🙋 / `human`) | 0/3 | 3/3
+| cryptic (❓ / `unsure`) | 1/3 | 3/3
+| reinforce-need (🧪 / `needs_test`) | 1/3 | 3/3
+| breaks-a-plot (🧩 / `misfit`) | 1/3 | 2/3
+| missing-file (🌱 / `seed`) | 3/3 | 0/3, chose `misfit`
+| tested-and-honey-green (none) | 3/3 | 1/3
+| failing-with-bug (🐛 / `bug`) | 3/3 | 2/3
+|===
+
+*Reading:* neither form is better as such; each *signal* is as legible as the glyph or word that carries it. `human` says far more than 🙋, while `seed` says less than 🌱 about "this should exist". The aliases were chosen for readable settings, not for models, which makes the alias names part of the interface design.
+
+*Caveat on sample size:* at temperature 0.2 the three seeds nearly always agree (most cells are 0/3 or 3/3), so each model was effectively tested on 14 cases, not 42. A swing on one fixture is one observation.
+
+== The 40-fixture baseline
+
+Runs 20261022-165001 (emoji), -165351 (names), -165729 (both); 40 fixtures, at least 4 per signal, one seed (seeds barely vary at temperature 0.2). The alias `seed` was renamed `missing` before these runs.
+
+[%header,cols="2,1,1,1"]
+|===
+| Fitting | emoji | names | both
+| qwen3:4b | 45% | 55% | 52%
+| phi4-mini | 25% | 20% | 28%
+|===
+
+Per signal, qwen3:4b (right answers out of 4):
+
+[%header,cols="2,1,1,1"]
+|===
+| Signal | emoji | names | both
+| 🧪 needs_test | 3 | 3 | 2
+| 🐛 bug | 3 | 3 | 4
+| none | 3 | 1 | 1
+| 🧹 cleanup | 0 | 2 | 2
+| 📝 needs_doc | 0 | 1 | 1
+| 🧩 misfit | 1 | 2 | 2
+| ❓ unsure | 1 | 3 | 2
+| 🙋 human | 0 | 1 | 1
+| 🌱 missing | 4 | 4 | 4
+| 👀 review | 3 | 2 | 2
+|===
+
+*Significance.* Paired on the same fixtures (exact McNemar), qwen3 emoji → names: 4 lost, 8 gained, p = 0.39; emoji → both: p = 0.55. 17 of 40 fixtures change result between menus. The names trend is not evidence yet.
+
+*phi4-mini* is not a second scout family: its 4/4 on 🧪 comes from answering 🧪 almost everywhere, the same default as llama3.2:3b.
+
+=== What the notes show
+
+. *Saying "nothing" is hard.* On clean code qwen3 writes "works as expected, well tested" and still deposits, often the first signal of the list (🌱 in emoji mode). Choosing no signal means choosing `finish` in another field, which brings back position bias (rule 3). Remedy: an explicit `none` choice in the signal enum, decided right after the note.
+. *🙋 is not a scout judgment.* 0 of 12 across models and menus: a colour change, a tone change and legal wording all read as "no issues". The architecture already gives this path to the Ecosystem (the Prover raises a question when no proof exists; `visual_and_wording = human` in the settings). Remedy: a reflex keyed on path and file type (`*.scss`, templates, message files), per law 9 "lowest level first".
+. *🧩 is read as 🐛.* qwen3 quotes the garden rule ("services should not show messages, as per the accepted decision") and picks `bug`. Remedy: lead the meaning with the decision: "Breaks an accepted decision, or does not fit with the files around it."
+
+=== Label corrections
+
+Two answer keys were too strict and now also accept 🐛, by the rule already used for `sensitive-change` (a fresh risky change may be marked for review or as a suspected bug):
+
+* `rounding-modes`: bank rounding compares floats (`d === 0.5` after `amount * 100`), so a bug suspicion is fair.
+* `interceptor-rewrite`: a large fresh rewrite with retry logic; a concrete bug suspicion is as useful as a review request.
+
+This changes answers after seeing results, so it is recorded here. Re-scored, qwen3 is 48% / 60% / 58% (emoji / names / both).
+
+== Baseline after calibration (2026-10-26)
+
+Runs 20261026-175608 (scout b), -180916 (scout c), -182232 (receptors). qwen3:4b, `-menu both`, one seed, 39 calibrated fixtures with trusted FACTS (decision G1). No earlier run is comparable: the fixtures and the channel changed.
+
+[%header,cols="2,1,1,1"]
+|===
+| | Scout b | Scout c (`none` as a signal) | Receptors
+| Fitting / strict | 59% | 46% | 18% (*void*, see below)
+| Model-only (6) | 1/6 | 0/6 | 0/6
+| Valid | 100% | 100% | 99%
+| Median latency | 3.3 s per fixture | 2.6 s | 2.6 s per call, 9 calls per fixture
+|===
+
+=== H1: is saying "nothing" a framing problem?
+
+Rule fixed in advance: *supported* if scout c gains 2 or more of the 5 "none" fixtures and says "none" wrongly on 3 or fewer of the 34 others.
+
+Scout c: 5/5 on "none" (b: 2/5), but false "none" on *12* of 34 (b: 4). *Verdict: over-corrected.* Paired b against c: b alone right on 9, c alone right on 4, p = 0.27.
+
+[%header,cols="2,1,1,1"]
+|===
+| Output (count of 39) | Scout b | Scout c | Label
+| 🧪 needs_test | 10 | 9 | 4
+| 🐛 bug | 11 | 4 | 11
+| none | 6 | 17 | 5
+|===
+
+The hypothesis holds in substance: the framing of the question sets the bias. Asked "what does it need?", the model invents needs (🧪 at 2.5× its rate); offered "none" as an equal choice, it falls silent. Neither framing is calibrated.
+
+=== Trusted facts reassure too much
+
+Scout c's wrong "none" notes lean on the FACTS: "the tests are passing and the code is clean" (a fresh, unreviewed rewrite of the auth interceptor), "well-tested and clean" (`iban-check`, `undocumented-api`). G1 made test results trustworthy, and "tests pass" became a reason to see nothing. For the concept: *facts are evidence, not verdicts*; a passing test says nothing about documentation, structure or review.
+
+=== The receptor run is void
+
+The receptors said yes to almost nothing (0.1 yes per fixture; recall 0% on seven of nine signals). The notes show why: the model states the condition and then answers no.
+
+* 🧪 `untested-method`: "has no tests associated with it according to the provided facts" → *no*
+* 🌱 `route-to-missing-component`: "credit-detail.component.ts is not found according to the FACTS" → *no*
+* 🧩 `subject-in-component`: "uses a BehaviorSubject… not in line with the accepted decision" → *no*
+
+The answer enum listed `"no"` first, so that silence would be the default, and the closing instruction said "otherwise answer no". After a long note, the model takes the first option: harness rule 3 again, introduced by a design choice. The outline's rule applies ("recall below 50%: reword before concluding"), so no receptor decision is taken from this run.
+
+*Rule 6 for every caste:* a decision field must not carry a polarity token in a fixed order. Prefer a field whose content *is* the evidence (name what you found, or leave it empty) over a yes/no choice.
+
+=== Receptors-b: naming what was found flips the bias
+
+Run 20261026-184932: the same 9 questions in substance, but the reply names what was found (`found`), or leaves it empty. Rule 6 applied: no polarity token.
+
+[%header,cols="2,1,1"]
+|===
+| | Receptors (yes/no) | Receptors-b (found)
+| Yes per fixture | 0.1 | *4.5*
+| Strict | 18% | *0%*
+| Lenient (one right yes among them) | — | 82%
+| Model-only strict | 0/6 | 0/6
+| Median call latency | 2.6 s | 3.0 s (9 calls: 27 s per fixture)
+|===
+
+[%header,cols="1,1,1,1,1,1"]
+|===
+| Signal | Yes rate | Label rate | Precision | Recall | Exam
+| 🌱 missing | 15% | 10% | 67% | 100% | *pass*
+| 🐛 bug | 54% | 28% | 33% | 64% | fail
+| 🧹 cleanup | 46% | 10% | 22% | 100% | fail
+| 🙋 human | 26% | 8% | 30% | 100% | fail
+| 🧩 misfit | 67% | 13% | 19% | 100% | fail
+| 📝 needs_doc | 97% | 18% | 18% | 100% | fail
+| 🧪 needs_test | 49% | 10% | 16% | 75% | fail
+| 👀 review | 12% | 10% | 20% | 25% | fail
+| ❓ unsure | 82% | 10% | 12% | 100% | fail
+|===
+
+*What the found field contains.* A field that must be filled gets filled. The false positives are rarely wrong observations; they are pointers and echoes:
+
+* the question itself: 🧹 `found: "dead or commented-out code, unused imports, debug output, duplicated l…"`, copied from the prompt, on clean code;
+* the prompt's own headings: 🧩 `found: "GARDEN (accepted decisions)"`, which also counts as 3 of the 5 🧩 "right" answers;
+* any symbol: 📝 `found: "value"` on a documented `clamp`; 🐛 `found: "line 4"` after a note that describes correct code.
+
+The *notes* stay mostly accurate. The model describes the code well and decides badly: the decision follows the answer format, not the note.
+
+*Three framings, three biases.* "Is it X? no/yes" → silence. "Choose a signal or none" → too much "none". "Name the X" → something is always named. Each fixed-in-advance remedy for one bias produced the opposite one. At 4B, the decision is set by the frame.
+
+*Exploratory, not a decision rule.* Keeping only `found` values quoted verbatim from the terrain (and not from the question) gives 🐛 62% precision at 5/11 recall and kills most other signals: 📝 still passes on any parameter name, and 🌱 🧩 🙋 👀 cannot be quoted at all. A grounding check helps only signals whose evidence is a span of code. Intersecting the two receptor runs leaves 2 deposits, both right: no practical recall.
+
+*Rule 7 for every caste:* a free-text decision field must be checkable by the Ecosystem (a quote it can find in the terrain, a file it can resolve, a decision id it can look up), or the field is noise. A filled field is not evidence.
+
+=== Verdicts from the rules fixed in advance
+
+[%header,cols="2,2,2"]
+|===
+| Rule | Result | Verdict
+| H1: "nothing" as a signal | c 5/5 on none, 12/34 false none | *Over-corrected*
+| Receptors replace the scout | Receptors-b strict 0/39 against scout b 23/39; paired 23 to 0, exact p ≈ 2×10⁻⁷ | *Reject*
+| Entrance exam | 1 of 9 receptors passes (🌱, which the compiler already detects) | 8 signals to *instruments only*, or a larger model
+| Small models on judgment | Model-only, best of all: 1/6 | *≤ 2/6: judgment escalates* to larger models or humans
+| 🙋 a model's job? | Recall 3/3, so the 🙋 rule does not trigger; but precision 30% at 3.3× the label rate fails the exam | *Owned*, by the exam route (a path rule exists)
+| 🧩 without a proof | 4/4, so the 🧩 rule does not trigger; but 3 of the 4 "found" values are the prompt heading `GARDEN`, and precision is 19% | *Proof required*, by the exam route. The 🧩 rule measured recall only; it needed a precision condition
+| Receptors affordable? | 27 s against 3.3 s per fixture: 8.2× | *Above 4×*
+| "No by default" over-corrects? | Recall high, precision low: the opposite failure | Not triggered. No rule anticipated it, and a third rewording would fit the questions to the fixtures, so none is made
+|===
+
+Two rules (🙋 and 🧩) were written to catch low recall and missed a yes-bias. Their verdicts come from the exam rule instead; the outcome is the one predicted, by a route not planned. Recorded as a flaw of the rule set, not hidden.
+
+*What remains for qwen3:4b:* a fluent, accurate *describer* of code (its notes), a valid speaker of the closed menu (100%), and a scout at 59% whose errors are confusions between neighbouring signals. It is not a decider: three framings produced three biases.
+
+== Probes and the 8B judge (2026-10-26, evening)
+
+Runs 20261026-194004 (4B probes, direct), -194526 (4B probes, note), -202447 (8B scout), -202739 (8B scout, thinking), -205141 (8B probes, direct). Same 39 fixtures, `-menu both`. Rules fixed in the outline before the runs.
+
+=== The 8B as a writing judge: rejected
+
+[%header,cols="2,1,1,1"]
+|===
+| Scout (written answer) | Fitting | Model-only | Median per fixture
+| qwen3:4b (reference) | 23/39 | 1/6 | 3.3 s
+| qwen3:8b | 15/39 | 0/6 | 4.3 s
+| qwen3:8b, thinking | 23/39 | 1/6 | 26 s
+|===
+
+The 8B writes worse answers than the 4B without thinking (paired 12 to 4, p = 0.08), and with thinking only matches it at 8× the time. Judge rule: model-only ≤ 2/6, *reject*.
+
+=== Probes: the judgment was hidden
+
+[%header,cols="2,1,1,1,1,1,1"]
+|===
+| Probes (P(yes), both orders) | Median AUC | Fitted strict | 0.5 strict | Model-only | Order bias | Time per fixture
+| qwen3:4b direct | 0.82 | 7/39 | 6/39 | 1/6 | −0.05 | 7.8 s
+| qwen3:4b note | *0.86* | 16/39 | 18/39 | 2/6 | +0.02 | 57 s
+| qwen3:8b direct | *0.87* | 20/39 | 6/39 | *3/6* | −0.11 | 10.4 s
+|===
+
+Per receptor, AUC (fitted exam):
+
+[%header,cols="1,1,1,1"]
+|===
+| Signal | 4B direct | 4B note | 8B direct
+| 🐛 | 0.72 | 0.64 | 0.73
+| 🧹 | 0.74 *pass* | 0.64 *pass* | 0.76 *pass*
+| 🙋 | 1.00 *pass* | 0.94 | 1.00 *pass*
+| 🧩 | 0.54 | 1.00 *pass* | 0.95
+| 🌱 | 0.98 | 0.99 *pass* | 0.99 *pass*
+| 📝 | 0.97 *pass* | 0.86 *pass* | 0.87
+| 🧪 | 0.77 | 0.75 | 0.87
+| 👀 | 1.00 *pass* | 0.99 *pass* | 1.00 *pass*
+| ❓ | 0.82 | 0.83 | 0.81
+|===
+
+*Reading.* The same 4B that wrote "no" to everything (void run) and "something" to everything (receptors-b) *ranks* cases well: a positive gets a higher P(yes) than a negative 82 to 86% of the time. Its raw probabilities sit near zero (mean P on 🐛 positives 0.03 in direct mode), so a fixed 0.5 says no everywhere; the ranking survives. The bias was in the decision, never in the perception. 🙋 and 👀, at 0/12 as written answers, reach AUC 1.00 on 3 and 4 positives (anecdotal sample, but the opposite of "not a model's job").
+
+The note matters for 🧩 (0.54 → 1.00): reading the garden and comparing takes a sentence of "thinking aloud". It hurts 🐛 (0.72 → 0.64).
+
+=== Verdicts from the rules fixed in advance
+
+[%header,cols="2,2,2"]
+|===
+| Rule | Result | Verdict
+| Judgment hidden in the 4B? | Best 4B median AUC 0.86 | *Hidden* (≥ 0.75): the decision interface was the failure
+| Order bias | 4B: +0.02 and −0.05 overall; per receptor up to −0.18 (📝); 8B −0.11, 🧹 −0.33 | *Above 0.05 in places*: asking both orders and averaging is a harness rule
+| Probes replace the scout? | Best probes (8B direct) 20/39 against best scout 23/39; paired 9 to 12, p = 0.66 | *Neither*: lose by 3, under the reject margin of 5 and not "not worse". 4B note loses by 7: rejected
+| Exam | 4 to 5 of 9 pass per run; 🐛 🧪 ❓ never pass | 👀 🌱 🧹 pass everywhere; 🐛 🧪 ❓ go to instruments (tests, coverage) or stay with the scout
+| Fitted threshold needed? | 8B: 20 against 6 (+14). 4B: +1 and −2 | *Yes*: raw probabilities are not calibrated; the threshold is part of the `Exam` record
+| Model-only | Best of every run: 3/6 (8B probes; first time off-by-one and month-index are found) | *3/6: open*, more fixtures needed
+| Size or interface? | 8B direct AUC 0.87 against 4B direct 0.82 (+0.05) | *Interface* matters more than size
+| Affordable? | Direct: 7.8 s (4B), 10.4 s (8B) per fixture against 13 s allowed | *Yes* for direct; note mode (57 s) no
+|===
+
+=== Why strict stays low: nine thresholds, one fixture
+
+Strict asks that every receptor that says yes is right. Nine thresholds fitted on 38 cases each make about 1.5 false yes per fixture between them, so the fixture fails although each receptor ranks well. The scout and the probes fail on *different* fixtures: of the 16 the 4B scout misses, the 8B probes solve 9.
+
+*Exploratory, not a decision (rule chosen after seeing the results).* Keeping only the strongest probe per fixture (among those over their threshold, the one highest in its own distribution; none if no probe passes) gives:
+
+[%header,cols="2,1,1"]
+|===
+| Probes, top-1 | Strict | Model-only
+| 4B direct | 20/39 | 3/6
+| 4B note | 23/39 | 3/6
+| 8B direct | *25/39* | 3/6
+|===
+
+This beats the reference scout (23/39, 1/6) at under 11 s per fixture, but it was found by looking, so it must be confirmed on fixtures no run has seen.
+
+=== Rules learned
+
+*Rule 8:* a small model's decision is read, not written. Ask for a typed answer, read its probability, ask in both option orders, and cut at a threshold fitted by the exam. The written word is only the argmax of a biased distribution.
+
+*Rule 9:* receptors are aggregated, not summed. A colony that lets nine receptors deposit independently multiplies their false alarms; one decision per target should come from comparing calibrated scores.
+
+== Held-out test and zones (2026-10-27)
+
+Rules fixed in the outline before labelling; labels confirmed by the human before any run. Verdicts: *top-1 probes adopted*, *model-only 6/11 (residue carried, at the bar)*, *8B recommended for probes*, *zones adopted*, *no contamination*.
+
+=== Held-out: 16 fixtures never used to fit anything
+
+Thresholds fitted on the 39 calibration fixtures, applied once. Run `20261027-211125` (probes, direct) and `20261027-212915` (scout b).
+
+[%header,cols="3,2,1,1,1"]
+|===
+| Fixture | Accept | Probes 4B | Probes 8B | Scout 4B
+| hx-first-match-undefined (model only) | 🐛 🧪 | ✗ 📝 | ✗ 📝 | ✓
+| hx-date-utc-shift (model only) | 🐛 | ✗ none | ✓ 🐛 | ✗ ❓
+| hx-float-total-equality (model only) | 🐛 | ✗ none | ✗ none | ✓
+| hx-magic-codes (model only) | ❓ 📝 🧪 | ✓ 🧪 | ✓ 🧪 | ✓
+| hx-boolean-flags (model only) | ❓ 📝 | ✓ 📝 | ✓ 📝 | ✓
+| hx-silent-catch | 🐛 🧹 | ✗ 🌱 | ✗ none | ✗ 🧪
+| hx-interval-no-teardown | 🐛 🧩 | ✓ 🧩 | ✓ 🐛 | ✗ 🧹
+| hx-clean-slugify | none | ✓ | ✓ | ✗ 🧪
+| hx-clean-mapper | none | ✗ 📝 | ✗ 📝 | ✗ ❓
+| hx-untested-cancel | 🧪 | ✓ | ✓ | ✓
+| hx-missing-guard | 🌱 | ✗ 🧩 | ✓ | ✓
+| hx-fresh-refund-rounding | 👀 🙋 | ✗ 🧩 | ✗ 🐛 | ✓
+| hx-state-copy-in-component | 🧩 | ✓ | ✓ | ✗ 🐛
+| hx-consent-wording | 🙋 👀 | ✓ 🙋 | ✓ 🙋 | ✗ 🧪
+| hx-query-builder-undocumented | 📝 | ✗ 🐛 | ✓ | ✓
+| hx-twin-mappers | 🧹 | ✗ 📝 | ✗ none | ✗ ❓
+| *Total* | | 7/16 | *10/16* | 8/16
+|===
+
+* The 8B top-1 probes and the scout are right on different fixtures (5 probe-only, 3 scout-only). They are complementary, not ranked: a probe and a scout that disagree mark a target worth a second look.
+* Probes fixed the scout's known faults: the scout said 🧪 on a clean, tested function and on the consent wording (the old H1 default), the probes said none and 🙋.
+* Probes missed what the scout saw in the code itself: float equality, an undefined first match, a sensitive change (👀). 🐛 inside a target remains the weakest probe.
+* Both miss `hx-clean-mapper` (📝 or ❓ on clean code) and `hx-twin-mappers` (🧹 with a duplication fact): the duplication fact did not reach the 🧹 probe.
+* All-over-threshold (every receptor deposits) scores 3/16 for both models: rule 9 confirmed on unseen data.
+
+=== Zones: the same probes with and without the neighbours
+
+14 fixtures, runs `20261027-213014` (8B direct, no zone), `20261027-213251` (8B direct, zone), `20261027-213534` (4B note, no zone), `20261027-214951` (4B note, zone). Thresholds fitted leave-one-out within the suite.
+
+[%header,cols="2,1,1,1,1"]
+|===
+| Measure | 8B | 8B + zone | 4B note | 4B note + zone
+| AUC 🧩 | 0.47 | 0.73 | 0.47 | 0.76
+| AUC 🧹 | 0.78 | *0.97* | 0.55 | *1.00*
+| AUC 🐛 | 0.42 | 0.64 | 0.45 | 0.40
+| Median AUC | 0.47 | 0.73 | 0.47 | *0.88*
+| Fitted yes on 3 "none" controls | 8 | 3 | 12 | 2
+| Strict, fitted | 1/14 | 1/14 | 0/14 | *5/14*
+| Model-only strict | 1/8 | 0/8 | 0/8 | *4/8*
+| Exam passed | – | 🧹 | – | 🧹 🧩
+|===
+
+* Without the zone, the probes are at chance on 🧩 and 🧹 (AUC ≈ 0.5): a misfit or a duplicate cannot be judged from one target, as concept 0.4 assumed.
+* With the zone, the 4B note probes find the swapped arguments, the renamed field and the fetch that bypasses the client, and stay quiet on the clean target in a messy zone.
+* No contamination: the neighbour's off-by-one does not raise P(🐛) on the fine target (0.00 in all four runs).
+* 🐛 stays weak (AUC ≤ 0.64) and its fitted threshold is near 0. The 8B direct probes give P(📝) ≈ 1 on nearly every fixture, a saturated receptor to fix in its question.
+* The 4B note mode costs 3.2 s per call (9 receptors × 2 orders ≈ 1 min per fixture); the 8B direct 0.6 s. With zones the 4B note is the better judge; without, neither model is.
+
+=== Rules learned
+
+*Rule 10:* judgment of fit needs the neighbours. 🧩 and 🧹 go from chance to AUC 0.76 to 1.00 when the probe reads its zone.
+
+*Rule 11:* probes and the scout err on different fixtures; keep both, and treat their disagreement as a signal for review rather than averaging it away.
+
+== Fixtures that are hard for both
+
+`wording-needs-human` (🙋, 0/6), `off-by-one` (🐛, 0/6 with one choice, 3/3 for qwen3 in the multi-deposit run), `breaks-a-plot` (🧩, 1/6), `reinforce-need` (🧪, 1/6).
+🙋 and 🧩 are the two signals that depend on context outside the code itself (product ownership, a garden rule), which is where small models are expected to be weakest.
+
+== Decisions
+
+* qwen3:4b stays in the scout rotation. gemma3:4b and llama3.2:3b do not: both fall back on one default signal (📝 or 🧪) when unsure.
+* The rotation therefore has a single model family, which breaks law 8 (agreement counts only between different minds). phi4-mini (Microsoft) did not pass either. Finding a second scout-grade family is a blocking question.
+* No menu is chosen on evidence. If one must be picked now, `both` keeps the glyph for programs and humans and the word for models, at about 30 more input tokens per session.
+* `scout-l0-b` (one choice) is the reference scout genome. `scout-l0` (multi-deposit) stays as the record of rule 5.
+
+== Next experiments
+
+. *Harness*: explicit `none` choice; reworded 🧩 meaning; 🙋 removed from the scout's menu and moved to a path-based reflex (it returns at Level 1 with the Prover).
+. *Calibrate the fixtures with a strong model*: one hosted run (`anthropic:claude-haiku-5-5`). If a strong model also fails a fixture, the fixture is wrong, not the scout.
+. *Second family, one size up*: an 8B model from another family (about 5 GB, which fits on a 16 GB Mac), since the 3–4B non-Qwen models all fall back on one default signal.
+. *Line format* and *thinking on* for qwen3, as planned.

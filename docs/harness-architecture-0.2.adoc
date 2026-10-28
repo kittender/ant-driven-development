@@ -1,0 +1,1274 @@
+= Ant-Driven Development: Harness Architecture
+:revnumber: 0.2
+:revdate: 2026-10-27
+:revremark: Companion to the ADD concept, draft 0.4. Adds instruments, probes, code zones and exams from the Level 0 evidence.
+:toc: left
+:toclevels: 2
+:sectnums:
+:icons: font
+:source-highlighter: none
+
+[abstract]
+This document describes the architecture of an ADD harness: the software that hosts a colony of ageants and enforces the rules of the ADD concept.
+It names components, records, interfaces and flows.
+It does not name a programming language, a model provider, a version control system or a database.
+Any implementation that satisfies the requirements here is an ADD harness.
+Version 0.2 follows concept 0.4: the Ecosystem now *senses* through instruments, small models are *read* as probabilities through probes, probes are fed the *code zone* of their target, and every genome sits an *exam* that sets its threshold.
+
+== Changes since 0.1
+
+Each change comes from a Level 0 result (`docs/level0-findings.adoc`; decision rules in `docs/concept-0.4-outline.adoc`, fixed before each run).
+
+[%header,cols="2,3,3"]
+|===
+| Change | Where in this document | Evidence
+| *Instruments*: a new Ecosystem component that runs the developer's tools and deposits what they find | <<instruments>>, <<data>> | 34 of 40 fixtures were detectable by an existing tool
+| *Facts*: a trusted part of the task bundle, computed by the Ecosystem | <<context>>, <<data>> | Models rightly ignored facts written as code comments (decision G1)
+| *Probes*: a caste that answers one typed question, read as a probability; the Ecosystem deposits for it | <<probes>>, <<tools>> | Median AUC 0.82 to 0.87 where the same models writing a decision reached 59%
+| *One decision per target*: probes are aggregated before any deposit | <<probes>> | Held-out test: top-1 8B probes 10/16 against the scout's 8/16; all probes depositing 3/16
+| *Probe call* in the Model Gateway: token probabilities, both option orders | <<model-gateway>> | Order bias up to 0.33; a fixed "no first" order voided a whole run
+| *Exam record* for every genome; the exam sets the threshold | <<exam>> | phi4-mini said 🧪 on 65% of cases against 10% labelled; the fitted threshold added 14 fixtures on the 8B
+| *Code zones*: clusters of 5 to 10 files drawn by a seeded program and fed to probes | <<zones>>, <<context>> | 🧩 + 🧹 mean AUC 0.51 → 0.88 with the zone, false alarms on fine targets 12 → 2, no contamination
+| *Agreement by mind*: an instrument is an independent mind; two genomes of one model family count as one | <<agreement>> | Only one model family passed on 16 GB
+| *Single decision sessions* and a deposit limit in the harness | <<runner>>, <<tools>> | A small model in a multi-turn session echoed itself in 38 of 42 sessions
+| *Conformance* Level 0 split into 0a Format, 0b Judgment, and a new 0c Senses before Level 1 | <<conformance>> | 0a and 0b are done; the loop of Level 1 depends on instruments
+| New settings `[instruments]`, `[owned]`, `[zones]`, `[probes]`, `[exam]`; model families in `[models]` | <<settings>> | —
+|===
+
+=== Two meanings of "zone"
+
+0.1 used *zone* for the trust zones A, E and H, which remain the central idea of this document.
+Concept 0.4 uses *zone* for a logical cluster of files.
+In this document the second is always written *code zone*.
+A code zone has nothing to do with trust: every code zone lives in the workspace, and every program that draws or reads one is in Zone E.
+
+== Scope
+
+=== What this document is
+
+A harness has two jobs.
+
+. *Host ageants*: start a model session with a genome, give it a closed set of tools (or none, for a probe), and end it.
+. *Be the Ecosystem*: run the deterministic programs (Clock, Sensor, Instruments, Prover, Ledger, Warden) that the concept calls the physics of the colony.
+
+The concept document says _what_ a colony does and why.
+This document says what a piece of software must provide for that to happen.
+
+=== What it is not
+
+* It is not an implementation plan. Build order is covered only by the conformance levels in <<conformance>>.
+* It does not choose technology. <<binding>> shows one possible binding and is not normative.
+* It does not define how to measure a colony against other ways of working.
+
+=== Requirement words
+
+*MUST* marks a rule without which the system is not ADD.
+*SHOULD* marks a strong default that an implementation may change with a stated reason.
+*MAY* marks an option.
+*(proposed)* marks a rule supported by evidence that was examined after the fact, not by a rule fixed in advance; it is a SHOULD until a run confirms it.
+
+=== Vocabulary
+
+[%header,cols="1,4"]
+|===
+| Term | Meaning
+| Ageant | One model session with one genome, one target and one life.
+| Genome | The definition an ageant is started from: prompt, model, tools, signals, limits, and for a probe its question.
+| Caste | A family of genomes with the same permissions: probe, scout, worker, patroller, soldier, gardener, queen.
+| Probe | A genome that answers one typed question about one target. It has no tools; the harness reads the probability of each answer.
+| Instrument | A deterministic program run by the Ecosystem (coverage, compiler, lint, duplication, git recency, path rules, zoning) whose findings become deposits and facts.
+| Fact | One line of evidence computed by the Ecosystem about a target, with what it proves and what it does not.
+| Exam | The run of a genome on labelled fixtures that admits it and records its AUC, threshold and order bias.
+| Code zone | A connected cluster of 5 to 10 files drawn by the zoning instrument. Not a trust zone.
+| Model family | The models that share a lineage (for example qwen3:4b and qwen3:8b). Agreement counts across families, not within one.
+| Signal | One emoji on one target, with an integer strength.
+| Request | A signal any permitted ageant or instrument may deposit. It decays.
+| Verdict | A signal only the Ecosystem or a human may issue.
+| Target | The thing a signal is about: a file, a symbol in a file, an ageant, a honey cell, a plot, a code zone.
+| Honey | The store of approved intent: frames (user stories) made of cells (scenarios).
+| Garden | The store of plans and decisions: plots.
+| Trail | The current set of signals, rendered per folder.
+| Ecosystem | The deterministic programs and their data. It contains no model.
+| Workspace | The project the colony works on: code, honey, garden, rendered trail, journals.
+| Tick | One step of the colony's logical clock.
+|===
+
+== System context
+
+....
+                        +-----------------------+
+                        |         Human         |
+                        |  intent, capping,     |
+                        |  answers, labels,     |
+                        |  settings             |
+                        +-----------+-----------+
+                                    |
+                              Human Console
+                                    |
++----------------+      +-----------v-----------+      +------------------+
+|     Model      | <----+                       +----> |    Toolchain     |
+|   providers    |      |      ADD HARNESS      |      | compiler, tests, |
+| local, hosted; +----> |  Ecosystem + Runner   | <----+ lint, coverage,  |
+| token probs    |      |                       |      | duplication, git,|
++----------------+      +-----------+-----------+      | zoning           |
+                                    |                  +------------------+
+                             reads, commits
+                                    |
+                        +-----------v-----------+
+                        |       Workspace       |
+                        | code, honey, garden,  |
+                        | trail, journals       |
+                        +-----------------------+
+....
+
+[%header,cols="1,3"]
+|===
+| Neighbour | What the harness needs from it
+| Human | Intent, approvals, answers to questions no program can settle, labels for the exam fixtures, and the settings.
+| Model providers | Text completion for a given model, with a way to obtain structured actions, and for probes the probability of each answer token.
+| Toolchain | Commands that return pass or fail (build, test, lint, rules named by a plot), and commands whose output an instrument can parse (coverage, duplication, git history, the zoning program).
+| Workspace | A versioned store that supports atomic changes, revert, and finding which change broke a check.
+|===
+
+== Trust zones
+
+This is the central idea of the architecture.
+Everything else follows from where a component sits.
+
+....
++====================================================================+
+|  ZONE H   Human                                    full authority  |
+|  writes settings, caps and uncaps, answers, labels, pauses, kills  |
++================================+===================================+
+                                 |
++================================v===================================+
+|  ZONE E   Ecosystem                       deterministic, no model  |
+|                                                                    |
+|    Clock   Sensor   Instruments   Prover   Ledger   Warden         |
+|    settings    event log    colony log    lease table    exams     |
+|                                                                    |
+|    +----------------------- Tool Gateway -----------------------+  |
+|    |   the only door between Zone A and everything else         |  |
+|    +------------------------------^-----------------------------+  |
+|    +----------------------- Model Gateway ----------------------+  |
+|    |   probe reads come back as numbers, decided in Zone E      |  |
+|    +------------------------------^-----------------------------+  |
++===================================|================================+
+                                    |   tool calls, probe answers
++===================================v================================+
+|  ZONE A   Ageants                         untrusted, model-driven  |
+|                                                                    |
+|    model output, and a private working copy in which whitelisted   |
+|    commands may run                                                |
++====================================================================+
+....
+
+[%header,cols="2,1,1,1"]
+|===
+| Asset | Zone A (ageants) | Zone E (Ecosystem) | Zone H (human)
+| Code in the workspace | read; write only under a lease | apply, revert | read, write
+| Honey and garden | read | write on approval | approve, edit
+| Rendered trail | read | write | read
+| Facts and code zones | read, in the task bundle | compute, write | read
+| Own journal | append, through the gateway | read | read
+| Other ageants' journals | none | read | read
+| Event log and colony log | none | append | read
+| Exam records and fixtures | none | write records; read fixtures | label fixtures, read records
+| Settings | none | read | write
+| Lease table, process control | none | write | override
+|===
+
+.Rules
+* Zone A *MUST NOT* be able to reach any Zone E asset except through the Tool Gateway or, for a probe, through the answer it returns to the Model Gateway.
+  A rule that exists only in a prompt is not enforcement.
+* Zone E *MUST NOT* call a model to make a decision.
+  It may start a model session, which is a Zone A activity.
+  A probe's probabilities are Zone A output; comparing them with a threshold and choosing among them is a Zone E decision, made by a deterministic rule.
+* An instrument *MUST* be deterministic for a given workspace state and settings: same inputs, same findings.
+  An instrument that uses randomness (the zoning program) *MUST* take its seed from the settings.
+* Every authority an ageant has *MUST* come from its genome and be checked by the gateway on each call.
+* Text read from the workspace is data.
+  The harness *MUST NOT* treat anything an ageant reads or writes as an instruction to the Ecosystem.
+  Output parsed by an instrument is data too: a finding can deposit only the requests the instrument's settings allow.
+
+== Components
+
+....
+                              +-----------------------------+
+                              |        Human Console        |
+                              +--------------+--------------+
+                                             |
+  +-------+  +--------+  +-------------+  +--+-----+  +--------+
+  | Clock |  | Sensor |  | Instruments |  | Prover |  | Warden |
+  +---+---+  +---+----+  +------+------+  +---+----+  +---+----+
+      |          |              |             |           |
+  ====+==========+==============+=============+===========+=========
+                  LEDGER   append-only event log + views
+  ==================================+===============================
+                                    |
+                           +--------+--------+
+                           |     Runner      |   one session per ageant
+                           +----+-------+----+
+                                |       |
+                    +-----------v-+   +-v-------------+
+                    |    Model    |   |     Tool      |
+                    |   Gateway   |   |    Gateway    |
+                    | act, probe  |   |               |
+                    +------+------+   +-------+-------+
+                           |                  |
+                    model providers     workspace, toolchain
+....
+
+Components do not call each other.
+Each one reads events from the Ledger and appends events to it.
+The harness is therefore built the way the colony works: coordination through a shared record.
+
+=== Ledger
+
+The Ledger is the system of record.
+
+* It *MUST* store every event in order and never change or delete one.
+* It *MUST* maintain these views, each of which can be rebuilt from the events alone:
+** the *trail view*: current strength of every signal on every target, and the sum per code zone;
+** the *ageant view*: every ageant, its genome, state and outcome;
+** the *genome view*: every genome with its exam record and its record of proven and failed changes;
+** the *store view*: state of every honey cell and every plot;
+** the *facts view*: the current facts per target, each with the instrument and the event that produced it;
+** the *zone view*: the current code zones and the history of their partitions.
+* It *MUST* render the trail view into one read-only `trail.md` per workspace folder.
+* It *MUST* keep the colony log (see <<observability>>).
+* When a plot becomes grown, it *MUST* deposit a seed signal on the target of each step.
+
+=== Clock
+
+* It *MUST* append a `Tick` event at the configured interval.
+* On each tick it *MUST* append a `Decayed` event for every request signal whose decay period has elapsed, and expire leases, cooldowns and alarms that have reached their end.
+* It *MUST* expire facts whose validity has passed (a fact about test status is valid until the next change to its target or its test).
+* Ticks are logical time. All rules *MUST* be expressed in ticks so that a run can be replayed at any speed.
+
+=== Sensor
+
+The Sensor turns the trail into work, and probe answers into signals.
+
+* After each `Deposited`, `Decayed` and `VerdictIssued` event it *MUST* evaluate the thresholds in the settings, per target and per code zone.
+* When a signal on a target reaches its threshold, and no ageant is active on that target, and the target is not cooling down, it *MUST* append `WakeRequested` naming the caste, the target and the cause.
+* When a signal summed over a code zone reaches its zone threshold, it *SHOULD* append one `WakeRequested` for the zone (for example one gardener for many 🧹), instead of one per target.
+* It *MUST* keep at most one outstanding wake per target and signal.
+* It *MUST* choose the genome for a wake by the rules in <<scheduling>>.
+* When a target needs perception (it changed, an instrument found it, or a scout named it), it *MUST* request a *probe panel* for it (see <<probes>>).
+* It *MUST* decide each probe panel by the aggregation rule in the settings, and append the resulting `Deposited` with the winning probe genome as author and the `ProbeRead` events as cause.
+* It *SHOULD* schedule the probe panels of one code zone back to back on one resident model, so the zone prefix is cached once.
+* When a need has stayed unanswered for the configured number of ticks, it *MUST* append `WakeRequested` for a Queen session.
+* It *MUST* assemble the task bundle for each wake (see <<context>>).
+
+[[instruments]]
+=== Instruments
+
+Instruments are how the Ecosystem senses.
+They are the lowest rung of perception: a program before a probe, a probe before a larger model, a model before a human (law 9).
+
+* Each instrument *MUST* be declared in the settings with its command, when it runs (on change, on a tick interval, or both), the parser that turns its output into findings, and the requests it may deposit.
+* Each finding *MUST* become zero or one `Deposited` (actor `instrument:<name>`) and one or more `FactRecorded` on its target.
+  A finding that matches no allowed request is recorded as a fact only.
+* An instrument *MUST NOT* issue a verdict. Failing tests reach the trail as verdicts through the Prover, not through an instrument.
+* An instrument runs in the same sandbox as the Prover: it executes the project's own tools on code ageants wrote.
+* The path rules in `[owned]` are an instrument with no command: a change to a matching path deposits 🙋 (or the configured signal) as a floor, whatever the probes say.
+* The *zoning instrument* draws the code zones (see <<zones>>) and appends `ZonesDrawn`.
+
+[%header,cols="1,2,2"]
+|===
+| Instrument | Finds | Deposits (default)
+| Compiler | Missing symbols, type errors | 🌱 on the missing target, facts on the caller
+| Coverage | Branches with no test | 🧪
+| Lint | Rule violations | 🧹, 📝, 🐛 by rule, from `[instruments]`
+| Duplication | Near-identical blocks | 🧹 on each copy
+| Git recency | Unreviewed changes on sensitive paths | 👀
+| Fan-in | Exported symbols with many callers | facts only (raises the weight of 📝)
+| Path rules | Changes under owned paths | 🙋
+| Zoning | Code zones | none; `ZonesDrawn`
+|===
+
+[[zones]]
+=== Code zones
+
+A code zone is a connected group of 5 to 10 files that import each other, change together, or fall under the same plots and honey frames.
+Probes are fed their target's zone; scouts are not; patrollers work on the edges between zones (law 16).
+
+* The zoning instrument *MUST* build a weighted graph from imports, files changed together in the version history, and the targets of plots and frames, with weights from the settings.
+* It *MUST* partition the graph with a community detection method that guarantees connected communities (Leiden, not Louvain), with:
+** a fixed seed from the settings;
+** the previous partition as the starting point, so that zones move only where the code moved;
+** a resolution chosen so that zones stay within the configured size range.
+* It *MUST* run again when the graph changes past the configured amount, and on a tick interval; each run is one `ZonesDrawn` event with the full partition.
+* A file belongs to exactly one code zone. An *edge* is an import or co-change link between two zones.
+* The zone part of a probe's bundle (see <<context>>) *MUST* stay within its size limit; when the zone is larger, the Sensor *MUST* narrow it to the plots, honey cells, contracts and the one neighbour with the strongest link, and *MUST NOT* summarise with a model.
+* Thresholds *MAY* be fitted per code zone when the exam fixtures for that zone allow it.
+
+The zoning program may be written in another language than the harness (see <<binding>>).
+It is a toolchain command like coverage: the harness runs it, parses its output, and keeps the result in the Ledger.
+
+[[probes]]
+=== Probes
+
+A probe holds one signal and one question ("Is there an input for which this target fails?").
+It does not run a loop and has no tools.
+
+.A probe panel
+....
+   target t, code zone z
+          |
+          v
+  +-------------------+   for each exam-passed probe genome g (one per signal)
+  | bundle: zone z,   |   ---------------------------------------------------+
+  | terrain, facts    |                                                      |
+  +---------+---------+                                                      |
+            |  shared prefix, cached                                         |
+            v                                                                |
+   question of g, options [yes, no]  ---> P1(yes)                            |
+   question of g, options [no, yes]  ---> P2(yes)                            |
+            |                                                                |
+            v                                                                |
+   ProbeRead { g, t, p = (P1 + P2) / 2, bias = P1 - P2 }  <------------------+
+            |
+            v  Sensor, deterministic
+   over threshold(g)?  -> rank by percentile in g's calibration range
+            |
+            v
+   top-1 deposits | none over threshold: no deposit
+....
+
+* A probe genome *MUST* declare one signal, one question, and a closed set of answers (two for a yes/no question).
+* The harness *MUST* ask each question once per order of the answers and average the probabilities (rule 6, rule 8).
+* The harness *MUST NOT* let a probe deposit by itself. Deposits for probes come only from the Sensor's aggregation.
+* The aggregation rule *MUST* be fixed in the settings. The default, adopted on held-out evidence, is *top-1*: among the probes over their threshold, the one whose probability stands highest in its own calibration range deposits; ties go to the configured receptor order; none over threshold means no deposit.
+* Only probes whose exam passed may sit on a panel. A signal with no passed probe is left to its instrument or to a scout.
+* A probe *MAY* write a short note before its answer ("note" mode) when its exam shows that the note improves its ranking; the note goes to the colony log only.
+* Thinking *MUST* be off for probes (rule 1).
+* *(proposed)* When a scout and the top-1 probe of a panel name different signals on the same target, the Sensor *SHOULD* deposit 👀 there. Probes and the scout were right on different held-out fixtures (5 probe-only, 3 scout-only), so their disagreement is information.
+
+=== Warden
+
+The Warden controls existence and access.
+
+* It *MUST* admit or refuse every wake: population limit, cooldown, alarm mode, proof pause.
+* It *MUST* grant leases, one holder per target, with an expiry.
+* It *MUST* refuse a lease on a test to any genome that writes code for the same cell.
+* It *MUST* run the watchdog: step limit, time limit, repeated identical change, a change that undoes an earlier change, too many steps without progress.
+* It *MUST* terminate an ageant when the watchdog fires or when a flag quorum is reached, and append `AgeantKilled`.
+* It alone *MUST* hold the ability to stop a session. No tool exposes it.
+* It *MUST* run the entrance exam for *every* genome before its first real session (law 14), and record the result (see <<exam>>).
+* It *MUST* run the canaries: known fixtures slipped into the normal flow. A canary result outside the exam's range *MUST* append `ExamDrifted` and return the genome to probation.
+
+=== Prover
+
+* It *MUST* run on a heartbeat: after the configured number of submitted changes or the maximum wait, whichever comes first.
+* While it runs, the Warden *MUST* admit no new ageant that writes to the workspace.
+* It *MUST* run the proof plan that the settings associate with each kind of change.
+* On a failing run it *MUST* find the change responsible, revert that change, and attribute the failure to it.
+* It *MUST* issue the verdicts: passed, failed, locked after sustained passes, alarm when the proven line itself is broken.
+* When no programmatic proof exists for a change, it *MUST* raise a question for the human and issue no verdict.
+* It *MUST* hold the gate: work reaches the main line only when the proof is green and the autonomy settings allow it.
+* Each proof result *MUST* also be recorded as facts on its targets, so the instruments' view and the Prover's agree.
+
+[[runner]]
+=== Runner
+
+The Runner hosts one ageant session.
+
+* It *MUST* start from exactly one genome and one task bundle.
+* For an acting genome it *MUST* loop: send the context to the Model Gateway, receive one action, pass it to the Tool Gateway, add the result to the context, repeat.
+* For a probe genome it *MUST* make the probe calls of <<probes>> and append one `ProbeRead`. It makes no other call.
+* It *MUST* stop on `finish`, on a limit, on a kill from the Warden, or when the genome's deposit limit is reached.
+* It *MUST* keep no state after the session ends.
+* An action that cannot be parsed counts as a step. After the configured number of malformed actions the session ends with outcome `malformed`.
+* Scouts and patrollers *SHOULD* run as single-decision sessions: one call, one note, one choice (rule 5). A small model in a multi-turn session repeats its own last reply.
+
+[[model-gateway]]
+=== Model Gateway
+
+* It *MUST* present one interface for every model, local or hosted, with two calls:
+** `act`: model, messages, the allowed actions, temperature, seed, output limit → exactly one action or a parse failure, plus token counts;
+** `probe`: model, messages, the answer options in a given order → the probability of each option, read from the token probabilities of the first answer token, plus token counts.
+* For `act` it *SHOULD* constrain output to the allowed actions where the provider supports it, with every field required and in a fixed order, the note before the choice (rules 2 and 3).
+  Where the provider cannot constrain output, it *MUST* fall back to a line-based action format that small models can produce.
+* For `probe`, a model whose provider returns no token probabilities *MUST NOT* be given a probe genome.
+* It *MUST* refuse a schema that puts a polarity token (yes, no, none) in a fixed position in a decision field (rule 6), and a free-text decision the Ecosystem cannot check (rule 7: a quote found in the terrain, a file that resolves, a decision id that is known).
+* It *MUST* send the stable part of the context first so that provider and local caches apply.
+* It *MUST* record every request and response, with probabilities for `probe`, in the colony log.
+
+=== Tool Gateway
+
+The Tool Gateway is the enforcement point.
+It is described in <<tools>>.
+
+=== Human Console
+
+The console is the human's side of the Ledger.
+It *MUST* let a human:
+
+* state an intent;
+* read, correct, cap and uncap frames and cells;
+* accept, reject or replace a plot;
+* answer a raised question;
+* issue the human verdicts;
+* label exam fixtures and confirm or change proposed labels;
+* pause and resume the colony, and kill an ageant;
+* read the trail, the ageant view, the exam records and the colony log;
+* edit the settings.
+
+Every console action *MUST* be an event with a human actor.
+The form of the console (command line, page, editor extension) is free.
+
+[[data]]
+== Data model
+
+Records are given in a neutral notation.
+`?` marks an optional field and `[]` a list.
+
+=== Target
+
+....
+target   = path                      a file
+         | path "#" symbol           a symbol inside a file
+         | "@" ageant-id             an ageant
+         | "honey:" frame            a frame
+         | "honey:" frame "/" cell   one scenario
+         | "garden:" plot            a plot
+         | "zone:" zone-id           a code zone
+....
+
+A signal on a file also applies to the folder views that contain it, and is counted in the sum of its code zone.
+A signal on a symbol *SHOULD* also be written as a `trail:` comment above the symbol when the file type allows comments.
+
+=== Signal
+
+....
+Signal {
+  emoji      one entry of the dictionary
+  class      request | verdict
+  target     Target
+  strength   integer >= 1
+}
+....
+
+The dictionary is defined by the concept document.
+An implementation *MUST* load it from the settings and *MUST NOT* accept an emoji that is not in it.
+Every entry *MUST* be a single Unicode code point with default emoji presentation.
+Each entry *MUST* also carry its name ("needs_test"): models read a signal as emoji plus name and answer with the name, programs and humans store the emoji.
+
+.Strength of a request signal
+....
+ strength
+    3 |             ####                   threshold 3: WakeRequested
+    2 |       ####  ####  ####
+    1 | ####  ####  ####  ####  ####
+    0 +------+-----+-----+-----+-----+----->  ticks
+       deposit deposit deposit decay  decay
+....
+
+* A deposit adds 1, up to the configured maximum.
+* Every `decay[emoji]` ticks without a deposit removes 1.
+* At 0 the signal is removed.
+* A second deposit by the same mind on the same target and emoji *MUST* be ignored. Strength counts distinct minds (see <<agreement>>).
+
+Verdicts have no strength above 1 and do not decay, except those the settings give an expiry (lease, alarm).
+
+=== Fact
+
+....
+Fact {
+  target     Target
+  kind       files | tests | coverage | callers | git | build | lint | duplication | owned | other
+  text       one line, as shown to the model
+  proves     what this fact establishes, one short phrase
+  not        what it does not establish, one short phrase
+  source     instrument name | "prover"
+  valid      until-change | ticks
+}
+....
+
+* A fact *MUST* be produced by an instrument or the Prover. No ageant writes a fact.
+* `proves` and `not` *MUST* be filled. "Tests pass" made models see nothing else; the bundle therefore says that a passing test says nothing about documentation, structure or review.
+
+=== Code zone
+
+....
+CodeZone {
+  id         stable across partitions where the files mostly stay
+  files[]    paths
+  edges[]    { zone, weight }
+  plots[]    plot ids whose targets fall in it
+  frames[]   honey frames whose cells point into it
+}
+Partition {
+  seed, resolution, graph_hash, previous?   the inputs, so a run can be replayed
+  zones[]    CodeZone
+}
+....
+
+=== Event
+
+....
+Event {
+  id       unique, totally ordered
+  tick     integer
+  at       wall-clock time, informative only
+  actor    ageant-id | "instrument:" name | "human:" name | program name
+  type     see table
+  cause?   id of the event that led to this one
+  body     fields that depend on the type
+}
+....
+
+[%header,cols="2,2,3"]
+|===
+| Type | Appended by | Meaning
+| `Tick` | Clock | Logical time advanced.
+| `Deposited` | Tool Gateway, Instruments, Sensor, Ledger, Console | A request signal was reinforced. From the Sensor, it carries the winning probe genome as author.
+| `Decayed` | Clock | A request signal lost one unit.
+| `VerdictIssued`, `VerdictCleared` | Prover, Warden, Ledger, Console | A verdict was placed or removed.
+| `FactRecorded`, `FactExpired` | Instruments, Prover, Clock | A fact about a target appeared or lapsed. *New.*
+| `ZonesDrawn` | Instruments | A new partition into code zones. *New.*
+| `ProbeRead` | Runner | One probe's averaged probability and order bias on one target. *New.*
+| `WakeRequested` | Sensor | A threshold was crossed and a caste is needed.
+| `SpawnAdmitted`, `SpawnRefused` | Warden | The wake may or may not start now.
+| `AgeantSpawned`, `AgeantRetired`, `AgeantKilled` | Runner, Warden | Life of an ageant.
+| `LeaseGranted`, `LeaseReleased`, `LeaseExpired` | Warden, Clock | Exclusive access to a target.
+| `ChangeSubmitted`, `ChangeReverted` | Tool Gateway, Prover | A change entered or left the pending line.
+| `ProofStarted`, `ProofFinished` | Prover | One heartbeat.
+| `FlagRaised`, `FlagQuorumReached` | Tool Gateway, Sensor | Soldiers accused an ageant.
+| `GenomeRegistered`, `GenomePromoted`, `GenomeRetired` | Tool Gateway, Ledger, Console | Life of a genome.
+| `ExamRecorded`, `ExamDrifted` | Warden | A genome sat its exam, or a canary left its range. *New.*
+| `FixtureLabelled` | Console | A human confirmed or changed a fixture's label. *New.*
+| `FrameProposed`, `CellCapped`, `CellUncapped` | Tool Gateway, Console | Life of honey.
+| `PlotProposed`, `PlotGrown`, `PlotWeeded` | Tool Gateway, Ledger, Console | Life of a plot.
+| `QuestionRaised`, `QuestionAnswered` | Prover, Tool Gateway, Console | Something only a human can settle.
+| `AlarmRaised`, `AlarmCleared` | Prover | Emergency mode.
+| `SettingsChanged`, `ColonyPaused`, `ColonyResumed` | Console | Human control.
+|===
+
+The `cause` field *MUST* be set on every event that has one.
+It is what makes a run explainable: a probe deposit points to its `ProbeRead` events, which point to the change or finding that requested the panel.
+
+=== Genome
+
+....
+Genome {
+  id            unique
+  caste         probe | scout | worker | patroller | soldier | gardener | queen
+  role          free label: tester, debugger, ripener, undertaker ...
+  template      id of the human-written template it derives from
+  author        queen session id | "human:" name
+  model         model name known to the Model Gateway
+  temperature   number
+  seed          integer
+  think         false for probes and micro-tasks
+  prompt        text, short
+  reacts_to[]   emoji this genome may be woken by
+  may_deposit[] emoji this genome may deposit, requests only
+  tools[]       tool names from the closed set
+  commands[]    whitelisted command ids, for tool-holding workers
+  question?     probes only: { signal, text, answers[], mode: direct | note }
+  zone          fed | none          probes: fed; scouts: none
+  limits        { steps, seconds, output_tokens, malformed, deposits }
+  exam?         Exam id, the latest
+  status        probation | active | retired
+}
+....
+
+* A genome is immutable. A change is a new genome, and a new genome sits a new exam.
+* `may_deposit` and `tools` *MUST* be a subset of what the caste allows (see <<tools>>). The gateway rejects a genome that asks for more.
+* A probe genome *MUST* have a `question` and no tools.
+
+[[exam]]
+=== Exam
+
+....
+Exam {
+  id
+  genome          Genome id
+  fixtures        fixture set id and version
+  model           as run
+  zone            with | without
+  auc             0.5 is chance
+  threshold       fitted on the fixtures, leave-one-out or from a calibration set
+  range           the genome's calibration distribution, for top-1 ranking
+  order_bias      mean P(yes) with yes first minus with no first
+  yes_rate        share of fixtures over threshold
+  label_rate      share of fixtures labelled with the signal
+  precision, recall
+  passed          precision >= 60% and yes_rate <= 2 x label_rate (from [exam])
+}
+....
+
+* The exam *MUST* use fixtures whose labels a human confirmed (`FixtureLabelled`) before the run.
+* A genome *MUST NOT* take part in a real session while it has no passed exam. A failed probe's signal falls to an instrument, a scout or a larger model.
+* The threshold a probe uses *MUST* be the one in its latest passed exam, never a fixed 0.5. On the 8B the fitted threshold added 14 correct fixtures out of 39.
+* An exam *SHOULD* be repeated when the fixture set changes version, when the zone setting changes, or on `ExamDrifted`.
+
+=== Ageant
+
+....
+Ageant {
+  id         unique; the name given by the Queen plus a counter
+  genome     Genome id
+  target     Target
+  zone?      code zone id, when the genome is fed one
+  cause      id of the WakeRequested event, or of the panel request
+  state      see state machine
+  outcome?   done | cannot | malformed | limit | killed | read
+  change?    Change id
+}
+....
+
+=== Lease
+
+....
+Lease {
+  target    Target
+  holder    ageant-id
+  expires   tick
+}
+....
+
+=== Change
+
+....
+Change {
+  id          unique
+  ageant      ageant-id
+  targets[]   Targets touched
+  patch       the difference, applicable and revertible alone
+  cells[]     honey cells this change claims to serve
+  state       pending | proven | failed | reverted
+}
+....
+
+=== Honey
+
+....
+Frame {
+  id         path under the honey store
+  story      { as_a, i_want, so_that }
+  cells[]    Cell
+}
+Cell {
+  id         unique inside the frame
+  kind       scenario | practice
+  text       Given / When / Then, or one statement for a practice
+  test       reference to the check that encodes it
+  state      proposed | capped | red | green | uncapped
+}
+....
+
+=== Plot
+
+....
+Plot {
+  id          path under the garden store
+  decision    one sentence
+  because     one sentence
+  proof?      reference to a rule the Prover can run
+  contract?   Target and its signature
+  steps[]     Targets, in order
+  state       proposed | grown | contested | weeded
+}
+....
+
+A plot whose decision must be enforced *SHOULD* carry a `proof` (a dependency rule, a lint rule, a type).
+The 🧩 probe is the second line, for plots no program can check.
+
+=== Task bundle
+
+The task bundle is everything an ageant is given.
+It is defined in <<context>>.
+
+[[storage]]
+== Storage layout
+
+....
+workspace/                         versioned; visible to ageants
+  src/ ...                         the code
+    trail.md                       rendered per folder, read-only
+  honey/
+    <feature>/<frame>.md           frames and their cells
+    practices/<cell>.md
+  garden/
+    <area>/<plot>.md
+  journals/
+    ant-<id>.md                    one per ageant, append-only
+
+ecosystem-home/                    outside the workspace; Zone E only
+  settings                         one file
+  dictionary                       the signal table, emoji and names
+  templates/                       human-written genome templates
+  genomes/                         every genome ever registered
+  probes/                          the question of each probe genome
+  fixtures/                        labelled exam fixtures, versioned
+  exams/                           exam records, one per genome and run
+  instruments/                     parsers and their output, per run
+  zones/                           every partition, with its inputs
+  ledger/                          the event log and its views
+  colony-log/                      full session records
+  working-copies/<ageant-id>/      private copy per live ageant
+....
+
+* The two roots *MUST* be separable by the operating environment, so that a process confined to a working copy cannot reach `ecosystem-home`.
+* Fixtures and exam records *MUST* stay out of the workspace: an ageant that could read the fixtures could learn to pass its exam.
+* Journals are kept in the workspace because they are readable history. Ageants append to them only through the `deposit` tool.
+* `trail.md` and every inline `trail:` comment are derived data. If they are deleted the Ledger writes them again.
+
+[[tools]]
+== The tool interface
+
+This is the complete set of actions an ageant can take.
+Nothing else exists from inside Zone A.
+A probe takes none of them: it answers one question, and the harness reads the answer.
+
+[%header,cols="2,3,4"]
+|===
+| Tool | Arguments | What the gateway checks before acting
+| `read` | target | Target is in the workspace and not another ageant's journal.
+| `write` | target, content or patch | Caller holds the lease. Target is not honey, garden, trail or a journal. Target is not a test of a cell the caller implements.
+| `run` | command id, arguments | Command id is in the genome's whitelist. Runs in the caller's working copy.
+| `deposit` | target, emoji | Emoji is a request and is in the genome's `may_deposit`. One per target and emoji. Within the genome's deposit limit; at the limit the session ends.
+| `flag` | ageant id, evidence | Caller is a soldier. Evidence refers to existing events.
+| `propose_frame` | frame | Caller's role is ripener. Stored as proposed.
+| `propose_plot` | plot | Caller is a gardener. One decision. Stored as proposed.
+| `submit_genome` | genome | Caller is a Queen session. Fields are within the caste's limits and derive from a template.
+| `finish` | outcome, note | Always allowed. Ends the session. The note goes to the colony log only.
+|===
+
+.Tools by caste
+[%header,cols="2,1,1,1,1,1,1,1"]
+|===
+| Tool | Probe | Scout | Worker | Patroller | Soldier | Gardener | Queen
+| `read` | no | yes | yes | yes | yes | yes | yes
+| `write` | no | no | yes | no | no | no | no
+| `run` | no | no | by genome | no | no | no | no
+| `deposit` | no | yes | yes | yes | no | yes | no
+| `flag` | no | no | no | no | yes | no | no
+| `propose_frame` | no | no | ripener | no | no | no | no
+| `propose_plot` | no | no | no | no | no | yes | no
+| `submit_genome` | no | no | no | no | no | no | yes
+| `finish` | no | yes | yes | yes | yes | yes | yes
+|===
+
+.Rules
+* The gateway *MUST* refuse and record any call outside this table. A refused call counts as a step.
+* A verdict emoji passed to `deposit` *MUST* be refused and recorded against the ageant.
+* Targets in a `deposit` *MUST* be chosen from a closed list the Ecosystem gave in the bundle (rule 4); free-text paths are refused.
+* `write` changes only the private working copy. The change reaches the workspace when the ageant finishes with outcome `done`, as one `ChangeSubmitted`.
+* There is no tool to send text to another ageant, to list ageants, to read the event log, or to read facts, fixtures or exams beyond what the bundle holds.
+* A Queen session reads the templates, the genome view and the unmet need as part of its task bundle. It needs no extra read tool.
+
+[[context]]
+== Context assembly
+
+The Sensor builds the task bundle. The Runner sends it in this order.
+
+....
+  +--------------------------------------------------+   most stable
+  | 1  Genome prompt                                 |
+  | 2  Dictionary lines for this genome's signals,   |
+  |    emoji plus name                               |
+  | 3  Honey: the cells that apply to the target     |
+  | 4  Garden: the plots that apply to the target    |
+  | 5  Code zone (probes only): plots, cells,        |   shared by every probe
+  |    contracts and one neighbour of the zone       |   of the zone
+  | 6  Terrain: target content, its contract,        |
+  |    one reference example                         |
+  | 7  FACTS: trusted, with what each proves and     |
+  |    what it does not                              |
+  +--------------------------------------------------+   cache boundary
+  | 8  Task sentence, written by the Sensor          |
+  | 9  Prior attempts on this target, if any         |
+  | 10 Local trail: the line for this target         |
+  | 11 Allowed actions and deposits, or the probe's  |
+  |    question and its answers in the given order   |
+  +--------------------------------------------------+   least stable
+....
+
+* Parts 1 to 7 *MUST* come first and be byte-identical for ageants that share a genome, a target and a code zone. For a probe panel, parts 3 to 7 *MUST* be byte-identical across the probes of the panel, so the prefix is computed once.
+* The facts part *MUST* be marked as computed by the Ecosystem and separated from the terrain. Facts *MUST NOT* appear as comments inside the terrain.
+* The code zone part *MUST NOT* be given to scouts: a scout that read no zone context is the closest thing to an independent mind the colony has.
+* The bundle *MUST NOT* contain another ageant's reasoning, notes or journal. A scout's note reaches a worker only as part of the trail line, never a probe.
+* Part 9 contains only the patch of a failed change and the name of the check that failed.
+* Which cells and plots apply is decided by the Sensor from references: a cell names its test and its targets, a plot names its steps and contract.
+* The settings give a size limit per part. When terrain exceeds it, the Sensor *MUST* narrow to the symbol and its direct dependencies; when the zone part exceeds it, it narrows as in <<zones>>. It *MUST NOT* summarise with a model.
+
+== Flows
+
+=== Life of an ageant
+
+....
+             admitted            lease granted        finish(done)
+ REQUESTED ----------> SPAWNED --------------> ACTING ------------> SUBMITTED
+     |                    |                      |                      |
+     | refused            | lease refused        | finish(cannot)       | heartbeat
+     v                    v                      | limit, malformed     v
+  DROPPED              RETIRED <-----------------+ kill          PROVEN | FAILED
+                          ^                                             |
+                          | ProbeRead                                   v
+                       READING  (probes: no lease, no tools)         RETIRED
+....
+
+An ageant that only deposits (scout, patroller, soldier) goes from `ACTING` to `RETIRED`.
+A probe goes from `SPAWNED` to `READING` to `RETIRED` with outcome `read`.
+
+=== Perception: from a change to a signal
+
+[%header,cols="1,2,5"]
+|===
+| Step | Actor | What happens
+| 1 | Instruments | On a change or a tick, each instrument runs. Findings become `FactRecorded` and, where allowed, `Deposited` with the instrument as author.
+| 2 | Instruments | When the graph changed enough, the zoning instrument appends `ZonesDrawn`.
+| 3 | Sensor | For a changed or newly found target, it requests a probe panel: the exam-passed probe genomes, the target, its code zone.
+| 4 | Runner | Each probe of the panel is asked in both answer orders over the shared prefix. One `ProbeRead` each.
+| 5 | Sensor | Applies the thresholds from the exam records and the aggregation rule. At most one `Deposited`, authored by the winning probe genome.
+| 6 | Sensor | Where no probe passed for a signal, a scout may be woken on the target; its single decision is a `deposit`.
+| 7 | Ledger | The trail view updates, per target and per code zone. From here the action flow below runs unchanged.
+|===
+
+=== From signal to proven change
+
+[%header,cols="1,2,5"]
+|===
+| Step | Actor | What happens
+| 1 | Tool Gateway, Instruments, Sensor | A deposit is made. `Deposited` is appended.
+| 2 | Ledger | The trail view updates. `trail.md` is rendered again.
+| 3 | Sensor | The threshold for that emoji is reached on the target or its code zone. It picks a genome, builds the bundle, appends `WakeRequested`.
+| 4 | Warden | Checks population, cooldown, pause. Grants the lease. Appends `SpawnAdmitted` and `LeaseGranted`.
+| 5 | Runner | Starts the session in a fresh working copy. Appends `AgeantSpawned`.
+| 6 | Runner, gateways | The loop runs: read, write, perhaps run, perhaps deposit.
+| 7 | Tool Gateway | On `finish(done)` the working copy's difference becomes one `ChangeSubmitted` on the pending line. The lease is released.
+| 8 | Prover | At the next heartbeat the proof plan runs over the pending changes.
+| 9 | Prover | Green: verdict passed on each target, the request that started the work is cleared, the proven line advances. Results are recorded as facts.
+| 10 | Prover | Red: the responsible change is found and reverted. Verdict failed on its targets. A dead-end signal is deposited there in the name of the failed genome.
+| 11 | Warden | The target enters cooldown.
+| 12 | Instruments | The proven or reverted change triggers the perception flow again: a failed proof is itself a finding.
+|===
+
+The ageant is already gone when proof runs, so the Ecosystem leaves the dead-end signal on its behalf.
+
+=== The change pipeline
+
+....
+ working copy        pending line          proven line           main line
+ (one per ageant)
+       |                   |                     |                    |
+       |  finish(done)     |                     |                    |
+       +------------------>|  one change,        |                    |
+       |                   |  one entry          |                    |
+       |                   |                     |                    |
+       |                   +---- heartbeat ----->|                    |
+       |                   |  green: advance     |                    |
+       |                   |  red: find culprit, |                    |
+       |                   |       revert it     +------ gate ------->|
+       |                   |                     |  autonomy setting  |
+....
+
+* Each change *MUST* be applicable and revertible alone.
+* Finding the culprit *SHOULD* halve the batch repeatedly instead of testing changes one by one.
+* If a change no longer applies because an earlier one was reverted, it is `failed` with reason `conflict` and its request signal is left to trigger new work.
+
+=== Exam
+
+[%header,cols="1,2,5"]
+|===
+| Step | Actor | What happens
+| 1 | Console | A human labels or confirms fixtures. `FixtureLabelled` per fixture; the set gets a new version.
+| 2 | Tool Gateway | A genome is registered, status `probation`.
+| 3 | Warden | Runs the genome on the fixture set, with and without its code zone as its genome declares. For a probe, both answer orders.
+| 4 | Warden | Fits the threshold (leave-one-out, or from a separate calibration set), computes AUC, order bias, yes rate, precision. `ExamRecorded`.
+| 5 | Warden | Passed: the genome may sit on panels or take wakes. Failed: it stays out, and its signal falls to an instrument, a scout or a larger model.
+| 6 | Warden | Canaries in the normal flow. A result outside the exam's range: `ExamDrifted`, back to probation, exam again.
+|===
+
+The fixtures are the colony's calibration set.
+Labelling them is a recurring human cost: 7 of the first 40 were wrong or too thin until a human reviewed them.
+
+=== Flag and kill
+
+[%header,cols="1,2,5"]
+|===
+| Step | Actor | What happens
+| 1 | Sensor | A change lands, or a claim is made. A soldier is woken with the ageant's id as target.
+| 2 | Soldier | Compares the claim with the Prover's results and the patch. Calls `flag` with references.
+| 3 | Sensor | Flags on that id from distinct soldier genomes on distinct model families reach the quorum. `FlagQuorumReached`.
+| 4 | Warden | Stops the session if it is alive. `AgeantKilled`. Places the terminated verdict on the id.
+| 5 | Ledger | Deposits a review request on every target the ageant changed.
+| 6 | Ledger | Counts the kill against the genome. Past the configured count the genome is retired.
+|===
+
+The watchdog path skips steps 1 to 3.
+
+=== Honey
+
+....
+            cap                 test written             code passes
+ PROPOSED --------> CAPPED -----------------> RED -------------------> GREEN
+     ^                 |                       |                         |
+     |                 |        uncap          |          uncap          |
+     +-----------------+<----------------------+<------------------------+
+....
+
+* A cell reaches `RED` only when its test exists and fails for the expected reason.
+* A cell that is `GREEN` and then fails is `RED` again and raises a failed verdict on the code, not on the cell.
+* Uncapping marks the test stale and deposits a review request on code that served the cell.
+* When dead-end signals on a cell's targets reach the escalation threshold, the cell is also returned to `PROPOSED` for ripening.
+
+=== Garden
+
+....
+             quorum or human              steps seeded
+ PROPOSED -------------------> GROWN ------------------> (work on the trail)
+     |                           |
+     | rejected                  | proof fails, or a patroller's
+     v                           | misfit signals accumulate
+   WEEDED <----- replaced -------+----> CONTESTED ----> gardener woken
+....
+
+Gardeners support a proposed plot by depositing a seed signal on it and doubt it with a question signal.
+Quorum counts distinct gardener genomes on distinct model families.
+
+=== A Queen session
+
+[%header,cols="1,2,5"]
+|===
+| Step | Actor | What happens
+| 1 | Sensor | A need has no genome that reacts to it, or every such genome has failed on the target or its exam. `WakeRequested` for the Queen.
+| 2 | Runner | Starts a new session. The bundle holds the need, the templates, and the genome view for similar needs, exam records included.
+| 3 | Queen | Calls `submit_genome` one or more times, varying wording and example, and assigning models in rotation.
+| 4 | Tool Gateway | Validates each genome against the caste limits. `GenomeRegistered`, status `probation`.
+| 5 | Queen | Calls `finish`. The session ends and nothing of it is kept except the genomes and the log.
+| 6 | Warden | Each new genome sits its exam.
+| 7 | Sensor | The original need is evaluated again and now finds a genome, if one passed.
+|===
+
+The Queen never names a target for an ageant and never starts one.
+
+[[scheduling]]
+== Scheduling
+
+=== Choosing a genome
+
+For a wake on signal _s_ and target _t_, the Sensor selects among genomes whose `reacts_to` contains _s_:
+
+. remove retired genomes and genomes without a passed exam;
+. remove genomes that left a dead end on _t_;
+. remove probation genomes if _t_ is not low-risk (see below);
+. among the rest, prefer a model family not used by the last ageant on _t_;
+. break ties with the seeded random source.
+
+If nothing remains, the need is unmet.
+
+=== Choosing a probe panel
+
+For a target _t_ in code zone _z_, the panel is one exam-passed probe genome per signal, on the probe model and mode the settings name.
+The Sensor *SHOULD* group panels by code zone and run them back to back on one resident model.
+On the Level 0 hardware (16 GB, one local model at a time) this is what makes nine probes cost about 10 seconds per target in direct mode.
+
+=== Probation
+
+A new genome works only on low-risk targets until it has the configured number of proven changes.
+The settings define low-risk by path pattern and by signal.
+`GenomePromoted` moves it to `active`.
+A probe genome is promoted on its exam and its canaries, since it makes no changes.
+
+=== Admission
+
+The Warden refuses a wake when any of these holds, and the Sensor asks again on a later tick.
+
+* The number of live ageants is at the limit.
+* The target is leased or cooling down.
+* The Prover is running and the genome has `write`.
+* The colony is paused.
+* An alarm is raised and the genome's caste is not listed for alarm mode.
+
+[[agreement]]
+=== Agreement needs distinct minds
+
+Wherever a count means agreement (signal strength, flag quorum, plot quorum), the harness *MUST* count distinct *minds* (law 8):
+
+* each instrument is one mind;
+* all genomes on models of one family are one mind, whatever their wording;
+* a probe panel is one mind for its target (it deposits once);
+* a scout and a probe of the same family are one mind for counting, even though they err on different targets.
+
+The settings *MUST* name the family of each model.
+Until a second family passes the exam on the available hardware, independent agreement comes from instruments.
+
+=== Alarm mode
+
+When the proven line itself fails, the Prover raises the alarm.
+Ordinary wakes are refused.
+Thresholds for the castes listed in the settings drop to 1 on the failing targets.
+The alarm clears on the next green heartbeat.
+
+== Enforcement map
+
+Every rule of the concept has one place where it is enforced.
+
+[%header,cols="3,2,3"]
+|===
+| Rule | Enforced by | How
+| Only the Ecosystem or a human issues verdicts | Tool Gateway, Instruments | `deposit` refuses verdict emoji; instruments declare requests only.
+| An ageant writes only its leased target | Tool Gateway, Warden | `write` checks the lease table.
+| Whoever writes the code cannot touch the test | Warden | No lease on a cell's test for a code-writing genome on that cell.
+| Ageants never message each other | Tool Gateway, Context assembly | No such tool. Journals of others are unreadable. Notes go to the colony log.
+| Honey and garden change only on approval | Tool Gateway, Console | `propose_*` stores a proposal. Only `CellCapped` and `PlotGrown` change the stores.
+| Nobody kills alone | Warden | Kill needs a quorum event or a watchdog rule. No tool stops a session.
+| Planners never build | Tool Gateway | Gardener caste has no `write`.
+| The Queen designs and never commands | Tool Gateway | Queen caste has `submit_genome` and `finish` only.
+| The settings are out of reach | Storage, operating environment | `ecosystem-home` is not visible from a working copy.
+| The same genome is not sent back to a dead end | Sensor | Selection rule 2.
+| Every signal has an author | Tool Gateway, Instruments, Sensor | The actor on `Deposited` is set by the harness, never by the caller.
+| Autonomy is configured | Prover, Console, Ledger | Each approval path reads the autonomy settings before acting.
+| No genome speaks before its exam (law 14) | Warden, Sensor | Selection rule 1; panels hold only exam-passed probes.
+| Read the decision, do not ask for it (law 15) | Model Gateway, Sensor | `probe` call in both orders; the Sensor applies the exam threshold; a probe has no `deposit`.
+| One decision per target | Sensor | Aggregation rule; at most one `Deposited` per panel.
+| One ageant, one decision | Runner, Tool Gateway | Deposit limit in the genome; the session ends at the limit.
+| Agreement only between different minds (law 8) | Ledger | Strength and quorums count minds by instrument and model family.
+| Judge near home, discover at large (law 16) | Context assembly | Code zone part for probes only; never for scouts.
+| Facts are evidence, not verdicts | Context assembly, data model | Facts in their own part, with `proves` and `not`; never in the terrain.
+| Fixtures cannot be learned | Storage | Fixtures and exams live in `ecosystem-home`.
+|===
+
+[[settings]]
+== Settings
+
+One file holds all tunable behaviour.
+The notation below is neutral. Values are examples; those marked _L0_ come from Level 0 runs.
+
+----
+[clock]
+tick            = "5m"
+lease           = 2          # ticks
+
+[signals]
+max_strength    = 5
+
+[decay]                      # ticks before a request loses one unit
+review          = 2
+needs_test      = 4
+flag            = 6
+dead_end        = 24
+
+[threshold]
+needs_test      = { count = 3, caste = "worker", role = "tester" }
+failed          = { count = 1, caste = "worker", role = "debugger" }
+dead_end        = { count = 2, escalate = ["gardener", "ripening"] }
+misfit          = { count = 2, caste = "gardener" }
+flag            = { count = 2, distinct = "family", do = "kill" }
+unanswered      = { ticks = 6, caste = "queen" }
+
+[threshold.zone]             # sums over one code zone
+cleanup         = { count = 4, caste = "gardener", role = "zone-plan" }
+
+[instruments]
+compiler        = { run = "on_change", command = "build", deposits = ["missing"] }
+coverage        = { run = "on_change", command = "coverage", deposits = ["needs_test"] }
+lint            = { run = "on_change", command = "lint", map = { "no-empty" = "bug", "jsdoc/require-jsdoc" = "needs_doc" } }
+duplication     = { run = "every 12", command = "dupes", deposits = ["cleanup"] }
+git_recency     = { run = "on_change", sensitive = ["src/app/checkout/**", "src/app/auth/**"], deposits = ["review"] }
+fan_in          = { run = "every 12", facts_only = true }
+
+[owned]                      # path rules: the floor for human decisions
+paths           = ["src/assets/i18n/**", "src/app/legal/**", "**/*.scss"]
+signal          = "human"
+
+[zones]
+sources         = { imports = 1.0, co_change = 0.5, plots = 0.5, frames = 0.5 }
+size            = { min = 5, max = 10 }
+seed            = 42
+warm_start      = true
+redraw          = { graph_change = 0.1, every = 288 }   # ticks
+zone_limit      = 2000       # tokens in the bundle
+
+[probes]
+model           = "qwen3:8b"     # L0: 10/16 held-out against 7/16 for the 4B
+mode            = "direct"       # direct | note
+orders          = 2              # both answer orders, averaged
+aggregation     = "top1"         # L0 held-out: top-1 10/16, all-over-threshold 3/16
+order           = ["bug", "cleanup", "human", "misfit", "missing", "needs_doc", "needs_test", "review", "unsure"]
+zone            = true           # L0 zones: 🧩 + 🧹 AUC 0.51 → 0.88
+disagreement    = "review"       # (proposed) scout and top-1 probe disagree
+
+[exam]
+precision       = 0.60
+max_yes_ratio   = 2.0            # yes rate at most twice the label rate
+threshold       = "leave_one_out"
+canary_every    = 50             # sessions
+
+[warden]
+max_alive       = 12
+cooldown        = 2          # ticks
+watchdog        = { same_change = 2, reverts = 1, steps_without_progress = 5 }
+kills_to_retire = 3
+
+[prover]
+heartbeat       = { changes = 10, max_wait = "3m" }
+lock_after      = 5          # consecutive green heartbeats
+plan.code       = ["build", "affected_tests", "lint"]
+plan.test       = ["build", "fails_for_expected_reason"]
+plan.plot       = ["named_rule"]
+
+[probation]
+proven_changes  = 5
+low_risk        = { paths = ["**/*.spec.*", "docs/**"], signals = ["needs_doc"] }
+
+[quorum]
+plot            = { count = 2, distinct = "family" }
+
+[context]
+terrain_limit   = 4000       # tokens
+honey_limit     = 800
+garden_limit    = 800
+facts_limit     = 300
+
+[models]
+families        = { "qwen3:4b" = "qwen3", "qwen3:8b" = "qwen3", "hosted-x" = "x" }
+rotation        = ["qwen3:4b"]
+queen           = ["hosted-x", "hosted-y"]
+think           = { probe = false, scout = false }
+
+[autonomy]
+cap_feature_frame  = "human"
+cap_practice_cell  = "auto"
+uncap              = "human"
+grow_plot          = "gardeners"
+change_contract    = "human"
+visual_and_wording = "human"
+merge_to_main      = "auto"
+
+[alarm]
+castes          = ["worker"]
+----
+
+Signal names in the settings are aliases.
+The dictionary file maps each alias to its emoji, so that the settings stay readable and the emoji can be changed in one place.
+
+* A change to the settings *MUST* be an event and take effect on the next tick.
+* A change to `[probes]`, `[zones]` or `[exam]` *MUST* be followed by a new exam of the probes it affects before they sit on a panel again.
+* The harness *MUST* refuse to start with a setting it does not recognise.
+
+[[observability]]
+== Observability
+
+=== The colony log
+
+For every session the colony log holds the genome, the full bundle, every model request and response (with probabilities for probes), every tool call and its result, token counts and times.
+Each session carries the id of the event that caused it.
+
+....
+ change  <--  ChangeSubmitted  <--  AgeantSpawned  <--  WakeRequested
+                                                             |
+                                                             v
+                 Deposited (instrument)    Deposited (probe panel)
+                         |                          |
+                         v                          v
+                   FactRecorded          ProbeRead x 9 (both orders)
+                         |                          |
+                         +------------+-------------+
+                                      v
+                    the change or proof result that set it off
+                                      |
+                                      v
+                            ...  back to a human event
+....
+
+The console *MUST* be able to answer, for any change: which ageant, which genome, which signal, which instrument or probe panel raised it, with which facts, and which earlier events led there, back to a human action or a proof result.
+
+=== Counters
+
+The Ledger *SHOULD* expose counts that need no interpretation: ageants by outcome, changes proven and reverted, signals deposited and decayed by author kind (instrument, probe panel, scout, other), deposits per code zone, panels with no deposit, scout and probe disagreements, exams passed and failed, canary drift, kills, questions waiting for a human, tokens and time per caste.
+What these numbers mean for a team is outside this document.
+
+=== Replay
+
+Because rules are expressed in ticks, the random sources (selection, zoning) are seeded, and probe probabilities are logged, a harness *SHOULD* be able to replay a recorded run with model responses taken from the colony log.
+This is the main tool for tuning thresholds, aggregation and decay: a new aggregation rule can be replayed over old `ProbeRead` events without calling a model.
+
+== Failure and recovery
+
+[%header,cols="2,4"]
+|===
+| Failure | Required behaviour
+| The harness stops | On start, views are rebuilt from the event log. Live sessions are treated as lost: leases expire, working copies are discarded.
+| A session crashes or hangs | The watchdog retires it. Its lease expires. Its request signal is still on the trail and triggers new work.
+| A model is unavailable | The Model Gateway reports it. The Sensor skips genomes on that model. A need with no remaining genome is unmet.
+| A provider stops returning token probabilities | Probe genomes on that model are suspended; their signals fall to instruments and scouts until the exam passes again.
+| An instrument fails or its output cannot be parsed | No finding and no fact from that run; the previous facts stay until they expire. A question is raised if it fails on consecutive runs.
+| The zoning program fails | The previous partition stays. Probes keep their zones; new files get no zone until the next draw.
+| A human edits the workspace directly | The edit is recorded as a change by a human actor and goes through the same heartbeat.
+| The toolchain itself fails | The Prover issues no verdict, raises a question for the human, and pauses admission of writing ageants.
+| The event log is damaged | The harness refuses to run. Derived files are never used to rebuild the log.
+|===
+
+[[conformance]]
+== Conformance levels
+
+An implementation can be built and used in stages.
+Each level is useful alone and each tests one assumption of the concept.
+Level 0 is split in three; 0a and 0b are passed by the reference harness on fixtures.
+
+[%header,cols="1,2,4,3,1"]
+|===
+| Level | Name | Adds | Shows | Status
+| 0a | Format | Model Gateway `act`, Runner, `deposit` and `finish`, dictionary, Tool Gateway checks | Whether small models produce a valid signal from a closed menu | done: 100% valid
+| 0b | Judgment | Model Gateway `probe`, probe genomes, exam records, aggregation, facts and code zone parts in the bundle | Whether small models judge, read as probabilities | done on fixtures: AUC 0.82 to 0.88, top-1 adopted, zones adopted
+| 0c | Senses | Instruments, facts view, zoning instrument, zone view, per-zone counting | Whether instruments on a real repository produce facts and signals as clean as the fixtures, and zones of the right size | next
+| 1 | Loop | Ledger with trail view, Sensor thresholds, leases, `read` and `write`, Prover on one check | One signal becoming one proven change |
+| 2 | Physics | Clock, decay, cooldown, dead ends, watchdog, heartbeat with culprit search | That a colony stops trying what cannot be done |
+| 3 | Genomes | Queen sessions, `submit_genome`, rotation, probation, genome view, exams for new genomes | That missing skills can be designed on demand |
+| 4 | Honey | Honey store, ripeners, capping in the console, test ownership | A user story going from frame to green |
+| 5 | Garden | Garden store, gardeners, patrollers on code zone edges, plot quorum, seeding | Two stories sharing a structure |
+| 6 | Immunity | Soldiers, flags, quorum kill, canaries | That bad ageants are removed and good ones are not |
+|===
+
+The trust zones apply from level 1.
+A level 1 harness that lets an ageant write outside its lease is not conformant.
+Level 1 depends on 0c: the loop starts from signals, and most signals start in an instrument.
+
+== Open decisions
+
+These are left to implementations, and experience should settle them.
+
+* *How a symbol is addressed.* `path#symbol` assumes the harness can find a symbol's boundaries. A language-aware parser is more exact, and a line range is simpler.
+* *How "tests affected by a change" is computed.* A dependency graph is precise. Running the tests of the touched folders is a workable start.
+* *Whether working copies are full copies.* A view that shares unchanged files is cheaper. The requirement is only isolation.
+* *Granularity of the cache boundary.* Honey, plots and code zones change more often than the genome and less often than the task. A harness may use more than one boundary where its provider allows it.
+* *What counts as the same change* for the watchdog: identical patch, or equal after normalising whitespace and names.
+* *Probe model per mode.* The 8B in direct mode was best on held-out fixtures without zones; the 4B in note mode was best with zones (AUC 0.88 against 0.73, at about five times the time per call). The settings name one model; a harness may let the exam choose per mode.
+* *The 🐛 probe.* It stays near chance inside the zones suite (AUC 0.40 to 0.64) and its fitted threshold is near 0. Bugs inside a target may belong to instruments and to a scout until a better question passes the exam.
+* *Saturated probes.* The 8B direct gives P(📝) near 1 on almost every fixture. An exam can catch this (yes rate against label rate), but the question needs rewording.
+* *Facts that do not reach the probe.* A duplication fact alone did not raise the 🧹 probe without the zone (`hx-twin-mappers`). Whether facts should be addressed to the probe of their signal is open.
+* *Per-zone thresholds.* Allowed above; no fixture set is yet large enough per zone to fit them.
+* *How often code zones are redrawn*, and whether a zone id should survive a partition when most of its files stay.
+
+[appendix]
+[[binding]]
+== One possible binding
+
+This appendix is not normative.
+It maps the architecture onto the stack of the reference harness (`kittender/add`) to show that nothing above depends on a particular product.
+
+[%header,cols="2,3"]
+|===
+| Architecture | Go, Ollama, Git
+| Harness process | One Go program, standard library only.
+| Model Gateway `act` | Ollama `/api/chat` with a JSON Schema in `format` (ordered, all fields required), `think: false`.
+| Model Gateway `probe` | Ollama `/api/chat` with `logprobs` (Ollama 0.12.11 or later); P(answer) from the first answer token, both orders.
+| Hosted models | The Anthropic Messages API behind the same interface, for the Queen and gardeners.
+| Workspace | A Git repository.
+| Working copy | One Git worktree per ageant under `ecosystem-home`.
+| Pending and proven lines | Two branches. One commit per change on the pending branch.
+| Culprit search and revert | `git bisect` over the batch, then `git revert`.
+| Main line and gate | The default branch, updated by fast-forward or pull request when the proven branch is green.
+| Event log | An append-only file of JSON lines, or an embedded database.
+| Instruments | The project's own commands (`tsc`, the test runner with coverage, ESLint, a duplication detector, `git log`), each with a parser in the harness.
+| Zoning instrument | A Python script using `leidenalg` with a fixed seed and the previous partition as the initial membership, run as a subprocess that writes `zones.json`.
+| Zone separation | A separate operating system user for the harness, and command execution (the `run` tool, the Prover, the instruments) confined to a container with the worktree mounted and no network.
+| Human Console | A command-line program first.
+|===

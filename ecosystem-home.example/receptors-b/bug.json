@@ -1,0 +1,29 @@
+{
+  "id": "receptor-bug-b",
+  "caste": "scout",
+  "role": "receptor",
+  "template": "receptor",
+  "author": "human:melinado",
+  "model": "",
+  "temperature": 0.2,
+  "seed": 0,
+  "prompt": "Name a line of the target and an input or situation for which it gives a wrong result, fails, or is unsafe.",
+  "reacts_to": [],
+  "may_deposit": [
+    "🐛"
+  ],
+  "tools": [
+    "deposit",
+    "finish"
+  ],
+  "commands": [],
+  "limits": {
+    "steps": 2,
+    "seconds": 120,
+    "output_tokens": 256,
+    "malformed": 2,
+    "deposits": 1
+  },
+  "status": "probation",
+  "answer": "found"
+}
