@@ -181,10 +181,10 @@ func (s Survey) Facts(target string, files []string) []Fact {
 			f.Text = fmt.Sprintf("tests: scenario %q passes (%d test cases)", target, r.Tests)
 			f.Proves, f.Not = "these examples behave as the scenario says", "other inputs work, or the code is clean"
 		case Undefined:
-			f.Text = fmt.Sprintf("tests: scenario %q has steps with no definition yet: %s", target, firstLine(r.Failure))
+			f.Text = fmt.Sprintf("tests: scenario %q has steps with no definition yet. The runner says:\n%s", target, indent(cleanFailure(r.Failure)))
 			f.Proves, f.Not = "the step definitions are missing", "anything about the game code"
 		case Red:
-			f.Text = fmt.Sprintf("tests: scenario %q fails: %s", target, r.Failure)
+			f.Text = fmt.Sprintf("tests: scenario %q fails. The runner says:\n%s", target, indent(cleanFailure(r.Failure)))
 			f.Proves, f.Not = "this scenario does not behave as written yet", "where the fault is: test or code"
 		default:
 			f.Text = fmt.Sprintf("tests: no test result matched scenario %q", target)
@@ -255,4 +255,22 @@ func (s Survey) AllFacts() []Fact {
 func firstLine(s string) string {
 	l, _, _ := strings.Cut(s, "\n")
 	return l
+}
+
+// cleanFailure drops stack-trace lines ("at file:line"): they point into the
+// test runner and only cost tokens. The message and any snippet stay.
+func cleanFailure(s string) string {
+	var keep []string
+	for _, l := range strings.Split(s, "\n") {
+		tl := strings.TrimSpace(l)
+		if strings.HasPrefix(tl, "at ") || tl == "…" {
+			continue
+		}
+		keep = append(keep, strings.TrimRight(l, " "))
+	}
+	return strings.TrimSpace(strings.Join(keep, "\n"))
+}
+
+func indent(s string) string {
+	return "    " + strings.ReplaceAll(s, "\n", "\n    ")
 }

@@ -29,12 +29,16 @@ type Config struct {
 	// Attempts by the first genome before a dead end; the second genome gets one.
 	Attempts int
 	// StepsAPI is a file in the workspace documenting the step library
-	// (the installed quickpickle README); StepsAPILimit trims it.
-	StepsAPI      string
-	StepsAPILimit int
-	Only          string // run only scenarios whose key contains this
-	Limit         int    // stop after this many scenarios (0 = all)
-	Progress      io.Writer
+	// (the installed quickpickle README). Only the sections whose heading
+	// contains one of StepsAPISections are given to testers; StepsAPILimit
+	// trims the result. StepsAPIExtra files (type declarations) go in whole.
+	StepsAPI         string
+	StepsAPISections []string
+	StepsAPIExtra    []string
+	StepsAPILimit    int
+	Only             string // run only scenarios whose key contains this
+	Limit            int    // stop after this many scenarios (0 = all)
+	Progress         io.Writer
 }
 
 const (
@@ -110,6 +114,9 @@ func New(cfg Config) *Pilot {
 	}
 	if cfg.StepsAPILimit == 0 {
 		cfg.StepsAPILimit = 9000
+	}
+	if cfg.StepsAPISections == nil {
+		cfg.StepsAPISections = []string{"Write step definitions", "replaces `this`"}
 	}
 	return &Pilot{cfg: cfg, ws: Workspace{Dir: cfg.Workspace}, logs: map[string]*os.File{}}
 }
@@ -304,6 +311,10 @@ func (p *Pilot) attempt(ctx context.Context, g Genome, key string, prior []strin
 		return a, "", err
 	}
 	req := b.Request(p.cfg.Model, p.cfg.MaxTokens, p.cfg.ContextTokens)
+	// A retry must be a new draw: with a fixed seed and a low temperature the
+	// first trial run repeated its failed attempt character for character.
+	req.Seed = g.Seed + int64(len(prior))*101
+	p.say("  %s #%d: asking %s … (%s)", g.ID, a.Session, p.cfg.Model, time.Now().Format("15:04:05"))
 	comp, lat, cerr := p.cfg.Gateway.Complete(ctx, req)
 	a.Usage, a.Latency = comp.Usage, lat.Seconds()
 	p.log("sessions.jsonl", map[string]any{
@@ -357,6 +368,7 @@ func (p *Pilot) attempt(ctx context.Context, g Genome, key string, prior []strin
 	evts := honey.Diff(snap, after)
 
 	t0 := time.Now()
+	p.say("  %s #%d: wrote %s, proving … (%s)", g.ID, a.Session, reply.Path, time.Now().Format("15:04:05"))
 	s := instruments.Run(ctx, p.cfg.Run, p.cfg.Workspace, p.cfg.Commands, after)
 	a.ProverS = time.Since(t0).Seconds()
 	p.surveys = append(p.surveys, s)
@@ -532,7 +544,19 @@ func (p *Pilot) bundle(g Genome, sc honey.Scenario, snap honey.Snapshot, prior [
 	add("📌 Contract: src/game/contract.ts", "src/game/contract.ts", 0)
 	add("Plot (proposed, not grown): garden/game/domain.md", "garden/game/domain.md", 0)
 	if g.Caste == Tester && p.cfg.StepsAPI != "" {
-		add("Step definition library: the installed quickpickle README", p.cfg.StepsAPI, p.cfg.StepsAPILimit)
+		if c, ok, _ := p.ws.Read(p.cfg.StepsAPI); ok {
+			body := ExtractSections(c, p.cfg.StepsAPISections)
+			if body == "" {
+				body = c
+			}
+			if len(body) > p.cfg.StepsAPILimit {
+				body = body[:p.cfg.StepsAPILimit] + "\n… (trimmed)"
+			}
+			b.Stable = append(b.Stable, Section{Title: "Step definition library: quickpickle (installed version), how to write steps", Body: body})
+		}
+		for _, f := range p.cfg.StepsAPIExtra {
+			add("Step definition library: "+f, f, 0)
+		}
 	}
 	return b, nil
 }

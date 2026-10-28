@@ -233,3 +233,30 @@ func TestLineDiff(t *testing.T) {
 		t.Fatalf("diff:\n%s", d)
 	}
 }
+
+func TestExtractSections(t *testing.T) {
+	md := "# Tool\nintro\n## Usage\n### Write step definitions\nuse world\n```sh\n# not a heading\n```\nmore\n### Run\nrun it\n## Differences\n### `world` replaces `this`\nworld first\n## Other\nno"
+	got := ExtractSections(md, []string{"Write step definitions", "replaces `this`"})
+	for _, want := range []string{"use world", "# not a heading", "more", "world first"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	for _, not := range []string{"run it", "intro", "no"} {
+		if strings.Contains(got, "\n"+not+"\n") || strings.HasSuffix(got, "\n"+not) {
+			t.Errorf("must not contain %q:\n%s", not, got)
+		}
+	}
+}
+
+func TestRetriesAreNewDraws(t *testing.T) {
+	ws, out := setup(t)
+	seeds := map[int64]bool{}
+	runPilot(t, ws, out, func(req model.Request, call int) string {
+		seeds[req.Seed] = true
+		return reply(Write, "tests/steps/01_start_game.steps.ts", "SYNTAX")
+	})
+	if len(seeds) != 3 {
+		t.Fatalf("3 attempts must use 3 seeds, got %v", seeds)
+	}
+}

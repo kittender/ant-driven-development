@@ -64,7 +64,11 @@ func (p *Pilot) WriteReport() error {
 	w("")
 	w("**Green without help: %d / %d** (capped scenarios passing at the end, not counting any whose own honey was weakened).", green, total)
 	w("")
-	w("%s.", Verdict(green))
+	if p.cfg.Only != "" || p.cfg.Limit > 0 {
+		w("Trial run (filtered with -only or -limit): the decision table of the outline applies only to a full run, so no verdict.")
+	} else {
+		w("%s.", Verdict(green))
+	}
 	w("")
 	own := 0
 	for _, e := range p.events {

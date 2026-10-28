@@ -77,7 +77,8 @@ func run(args []string, out io.Writer) error {
 		Run:      instruments.Exec,
 		Commands: instruments.TypeScript(),
 		Out:      dir, MaxTokens: *maxTokens, ContextTokens: *ctxTokens, Attempts: *attempts,
-		StepsAPI: *stepsAPI, Only: *only, Limit: *limit, Progress: out,
+		StepsAPI: *stepsAPI, StepsAPIExtra: []string{"node_modules/quickpickle/dist/models/DataTable.d.ts"},
+		Only: *only, Limit: *limit, Progress: out,
 	}
 	if *check {
 		return checkRun(ctx, cfg, out)
