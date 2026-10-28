@@ -445,6 +445,19 @@ Run `20261028-211236` (trial `20261028-210840` before it, not counted): changes 
 
 *Reading the rules honestly.* The rules ran as written, and their verdicts stand. But run 3 mostly measured a gap in reflex 4's unwrap, not whether the reflex helps a small worker: 32 of its 37 "code losses" are an interface fault that compiled into `src/`. The split of change 3 counts them as code, as written. The rule for the next run (thinking on) is the human's to confirm, knowing this.
 
+== Run 4 of the first loop (fixed before any change and any run, 2026-10-28)
+
+Decided by the human after run 3: fix the gaps run 3 found and run it again as designed, thinking still off. Everything else stays as in run 3.
+
+*Changes (all to the worker interface of reflex 4).*
+
+. *Unwrap expression arrows.* A body that repeats its method's declaration with an expression body (`const newGame: GameApi['newGame'] = () => ({ … });`, or `=> value;`) is reduced to `return …;` and logged as an unwrap, like a block body.
+. *Named bodies.* The reply's bodies become an object with one required field per contract method (`newGame`, `fromRows`, …), fixed by the JSON Schema, instead of a list to count. An empty field keeps the method.
+. *No first line in the prompt.* The method list shows the contract's line (`newGame(): GameState;`) and says the Ecosystem writes the declaration; the generated `const …` line is no longer shown to be copied.
+. *Missing-name hint.* A compiler error `Cannot find name` (TS2304, TS2552) in `src/` adds a fixed hint: define it in helpers, and send every helper the bodies use, since helpers replace the current ones.
+
+*Rules.* The run 3 table, unchanged (interface losses ≤ 25% / > 50%; worker sessions that do not compile ≤ 35% keeps reflexes 4 and 5, > 50% means the next run tries thinking on for workers; greens split by reflex use). One check added: any worker write that compiles with a contract method's declaration still nested in its body is a harness bug, and makes the run a trial, not counted.
+
 == Architecture 0.1 → 0.2
 
 * *Components*: an Instruments component (or Sensor extension) appending `Deposited` events with an instrument actor.
