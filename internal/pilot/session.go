@@ -42,31 +42,25 @@ func Genomes() []Genome {
 const honeyRule = `The capped scenarios (tag @capped, the 🍯 honey) are the specification a human approved. A change to honey goes through propose_honey: it is stored for a human to decide and is not applied.`
 
 const testerA = `You are a tester ageant in an ADD colony: one small task, then you end.
-Your task: write the Cucumber step definitions that make ONE capped scenario run against the game's contract.
-You never write game code. The test you write is right when the scenario runs and fails only because the game is not implemented yet, or passes because the game already does it.
+Your task: write the bodies of the Cucumber steps that make ONE capped scenario run against the game's contract.
+You never write game code. The test is right when the scenario runs and fails only because the game is not implemented yet, or passes because the game already does it.
 ` + honeyRule + `
-Rules for the step file:
-- Start from the step skeletons the Ecosystem gives you: keep each first line exactly as written, and write its body.
-- Write the whole file for this feature (it replaces the old one). Keep every step already in it.
-- A step already defined in another step file is shared: do not define it again.
-- Use exactly the step wording of the feature file. Values become cucumber expressions: {string} matches a quoted value including its quotes, {int} a number. The step text it should be player "X"'s turn is registered as:
-    Then("it should be player {string}'s turn", (world, player: string) => { ... });
-  Use double quotes for a step text that contains an apostrophe.
-- Import Given, When, Then (and DataTable, World if you need them) from './world', never from 'quickpickle': './world' gives every step a typed world (see the test scaffold).
-- Import the game as: import { game } from '../../src/game/game'; types with import type from '../../src/game/contract'; expect from 'vitest'.
+What you write:
+- You send one body per step skeleton, in order: only the code inside the step. The Ecosystem writes the step file: the first line of each step, the closing brackets, and the imports (expect from vitest, game, the contract types).
+- A body receives world (typed: world.game, world.match, world.result, world.before) and the parameters named in its first line.
+- Given and When bodies set up or act through the game API (game.newGame(), game.play(...)); Then bodies check with expect(...).
+- Steps marked as already defined are not yours to write.
 - TypeScript is strict: no implicit any, and array indexes may be undefined.`
 
 const testerB = `You write tests for one scenario of a tic-tac-toe specification, and nothing else.
-The scenario is written in Gherkin. Bind each of its steps to code: Given/When steps set up or act through the game API, Then steps check results with expect.
-Your file must compile, must not change other tests, and must make this scenario fail only because the game is still "not implemented" (or pass, if the game already handles it).
+The scenario is written in Gherkin. Each of its steps already has a first line, written by the Ecosystem; you write what each step does.
+The bodies must compile, must not break other tests, and must make this scenario fail only because the game is still "not implemented" (or pass, if the game already handles it).
 ` + honeyRule + `
-How to write the file:
-- Use the step skeletons you are given: their first lines are already correct; fill in the bodies only.
-- Return the complete step file of this feature; it replaces the previous version, so keep what was there.
-- Never redefine a step that another step file already defines.
-- Copy the step text exactly; put {string} where a quoted value is (the quotes belong to {string}) and {int} where a number is. Example: Then("it should be player {string}'s turn", (world, player: string) => { ... }); with double quotes because of the apostrophe.
-- Use: import { Given, When, Then } from './world'; import { expect } from 'vitest'; import { game } from '../../src/game/game'; import type for the types of '../../src/game/contract'.
-- Each step receives the typed world first; store the state there. Strict TypeScript.`
+How to answer:
+- Send the bodies only, one per step skeleton, in the order given; no step registrations, no imports (the Ecosystem adds them).
+- Use world to keep state between steps: world.game, world.match, world.result, world.before are typed.
+- Act through the game API in Given/When bodies; check with expect in Then bodies.
+- Skip the steps marked as already defined. Strict TypeScript.`
 
 const workerA = `You are a worker ageant in an ADD colony: one small change, then you end.
 Your task: change src/game/game.ts so that ONE capped scenario passes, without breaking a scenario that already passes.
@@ -98,26 +92,33 @@ const (
 
 // Reply is the parsed answer of a writer session.
 type Reply struct {
-	Note    string `json:"note"`
-	Action  Action `json:"action"`
-	Path    string `json:"path"`
-	Content string `json:"content"`
+	Note    string   `json:"note"`
+	Action  Action   `json:"action"`
+	Path    string   `json:"path"`
+	Bodies  []string `json:"bodies,omitempty"` // testers: one body per step skeleton
+	Content string   `json:"content"`
 }
 
 // replySchema: the note first (rule 3), every field required (rule 2), the
 // path a closed choice the Ecosystem gave (rule 4). "none" goes with cannot.
-func replySchema(paths []string) map[string]any {
+// Testers also send bodies: one per step skeleton (the harness writes the file).
+func replySchema(paths []string, bodies bool) map[string]any {
 	enum := append(append([]string{}, paths...), "none")
-	return model.ObjectSchema(
-		model.Field{Name: "note", Schema: map[string]any{"type": "string"}},
-		model.Field{Name: "action", Schema: map[string]any{"type": "string", "enum": []string{string(Write), string(ProposeHoney), string(Cannot)}}},
-		model.Field{Name: "path", Schema: map[string]any{"type": "string", "enum": enum}},
-		model.Field{Name: "content", Schema: map[string]any{"type": "string"}},
-	)
+	fields := []model.Field{
+		{Name: "note", Schema: map[string]any{"type": "string"}},
+		{Name: "action", Schema: map[string]any{"type": "string", "enum": []string{string(Write), string(ProposeHoney), string(Cannot)}}},
+		{Name: "path", Schema: map[string]any{"type": "string", "enum": enum}},
+	}
+	if bodies {
+		fields = append(fields, model.Field{Name: "bodies", Schema: map[string]any{"type": "array", "items": map[string]any{"type": "string"}}})
+	}
+	fields = append(fields, model.Field{Name: "content", Schema: map[string]any{"type": "string"}})
+	return model.ObjectSchema(fields...)
 }
 
-// ParseReply reads and checks a reply against the menu.
-func ParseReply(raw string, paths []string, specPrefix string) (Reply, error) {
+// ParseReply reads and checks a reply against the menu. stepsPath, when
+// set, is the step file the harness writes from nBodies bodies.
+func ParseReply(raw string, paths []string, specPrefix, stepsPath string, nBodies int) (Reply, error) {
 	var r Reply
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &r); err != nil {
 		return r, fmt.Errorf("reply is not the JSON object asked for: %w", err)
@@ -130,6 +131,19 @@ func ParseReply(raw string, paths []string, specPrefix string) (Reply, error) {
 	case Write:
 		if !allowed[r.Path] {
 			return r, fmt.Errorf("path %q is not in the menu", r.Path)
+		}
+		if stepsPath != "" && r.Path == stepsPath {
+			if len(r.Bodies) != nBodies {
+				return r, fmt.Errorf("%d bodies sent, %d step skeletons to write: send exactly one body per skeleton, in order", len(r.Bodies), nBodies)
+			}
+			for i, b := range r.Bodies {
+				c, err := CleanBody(b)
+				if err != nil {
+					return r, fmt.Errorf("body %d: %w", i+1, err)
+				}
+				r.Bodies[i] = c
+			}
+			return r, nil
 		}
 		if strings.TrimSpace(r.Content) == "" {
 			return r, fmt.Errorf("write with empty content")
@@ -156,9 +170,10 @@ type Bundle struct {
 	ReadOnly map[string]string // files shown for reference only
 	Facts    []instruments.Fact
 	Prior    []string // what earlier failed attempts did and why they failed
-	// Skeletons is the reflex's section for testers: the first line of
-	// every step definition the scenario needs, correctly quoted.
-	Skeletons string
+	// Skeletons are the reflex's step skeletons for testers; ToWrite are
+	// those the tester sends a body for (the others are already defined).
+	Skeletons []Skeleton
+	ToWrite   []Skeleton
 	Stable    []Section
 	Paths     []string // the closed menu of writable paths
 }
@@ -197,8 +212,8 @@ func (b Bundle) User() string {
 		}
 		s.WriteString("\n## " + p + " (you may write it)\n\n```" + lang + "\n" + strings.TrimSpace(c) + "\n```\n")
 	}
-	if b.Skeletons != "" {
-		s.WriteString("\n## Step skeletons for this scenario\n\n" + b.Skeletons + "\n")
+	if len(b.Skeletons) > 0 {
+		s.WriteString("\n## Step skeletons for this scenario\n\n" + RenderSkeletons(b.Skeletons) + "\n")
 	}
 	s.WriteString("\n## FACTS (computed by the Ecosystem, trusted)\n\n")
 	for _, f := range b.Facts {
@@ -213,13 +228,19 @@ func (b Bundle) User() string {
 	s.WriteString("\n## TASK\n\n")
 	switch b.Genome.Caste {
 	case Tester:
-		s.WriteString(fmt.Sprintf("Write the step definitions for the capped scenario %q in %s.\n", b.Scenario.Name, StepFileFor(b.Scenario.File)))
+		s.WriteString(fmt.Sprintf("Write the step definitions for the capped scenario %q: one body for each of the %d step skeletons to write.\n", b.Scenario.Name, len(b.ToWrite)))
 	case Worker:
 		s.WriteString(fmt.Sprintf("Change src/game/game.ts so that the capped scenario %q passes.\n", b.Scenario.Name))
 	}
 	s.WriteString("\n```gherkin\n" + strings.TrimRight(b.Scenario.Text(), "\n") + "\n```\n")
-	s.WriteString("\n## YOUR REPLY\n\nOne JSON object: note (what you will do, one or two sentences), then action, path, content.\n")
-	s.WriteString("- write: path is one of " + strings.Join(b.Paths, ", ") + "; content is the whole new file.\n")
+	if b.Genome.Caste == Tester {
+		s.WriteString("\n## YOUR REPLY\n\nOne JSON object: note (what you will do, one or two sentences), then action, path, bodies, content.\n")
+		s.WriteString(fmt.Sprintf("- write the steps: path is %s; bodies is a list of exactly %d bodies, one per step skeleton to write, in order (Step 1 first); content is empty.\n", StepFileFor(b.Scenario.File), len(b.ToWrite)))
+		s.WriteString("- write the honey: path is " + specDir + "/" + b.Scenario.File + "; content is the whole feature file; bodies is empty.\n")
+	} else {
+		s.WriteString("\n## YOUR REPLY\n\nOne JSON object: note (what you will do, one or two sentences), then action, path, content.\n")
+		s.WriteString("- write: path is one of " + strings.Join(b.Paths, ", ") + "; content is the whole new file.\n")
+	}
 	s.WriteString("- propose_honey: path is a spec file from that list; content is the whole feature file as you propose it; a human decides.\n")
 	s.WriteString("- cannot: path is none, content is empty; say why in the note.\n")
 	return s.String()
@@ -235,7 +256,7 @@ func (b Bundle) Request(modelSpec string, maxTokens, ctxTokens int) model.Reques
 		Seed:          b.Genome.Seed,
 		MaxTokens:     maxTokens,
 		ContextTokens: ctxTokens,
-		Format:        replySchema(b.Paths),
+		Format:        replySchema(b.Paths, b.Genome.Caste == Tester),
 	}
 }
 

@@ -194,17 +194,32 @@ func RegisteredExpressions(src string) []string {
 	return out
 }
 
-// RenderSkeletons is the bundle section for the tester.
+// RenderSkeletons is the bundle section for the tester: the skeletons to
+// write are numbered, the others shown as already defined.
 func RenderSkeletons(sks []Skeleton) string {
 	var b strings.Builder
-	b.WriteString("Written by the Ecosystem from the step texts: the first line of each step (expression, quoting, parameters) is right. Keep it exactly; write the body. A step marked as already defined must not be written again.\n\n```ts\n")
+	b.WriteString("Written by the Ecosystem from the step texts. You send one body per numbered step, in order: the code that goes where it says // body. The Ecosystem puts each body under its first line and writes the imports.\n\n```ts\n")
+	n := 0
 	for _, s := range sks {
 		if s.DefinedIn != "" {
-			fmt.Fprintf(&b, "// already defined in %s: do not write it again\n// %s(%s, …)\n\n", s.DefinedIn, s.Keyword, strconv.Quote(s.Expression))
+			fmt.Fprintf(&b, "// already defined in %s: no body to send\n// %s(%s, …)\n\n", s.DefinedIn, s.Keyword, strconv.Quote(s.Expression))
 			continue
 		}
-		b.WriteString(s.Code + "\n\n")
+		n++
+		args := append([]string{"world"}, s.Params...)
+		fmt.Fprintf(&b, "// Step %d\n%s(%s, (%s) => {\n  // body %d\n});\n\n", n, s.Keyword, strconv.Quote(s.Expression), strings.Join(args, ", "), n)
 	}
 	b.WriteString("```")
 	return b.String()
+}
+
+// Pending returns the skeletons that still need a body.
+func Pending(sks []Skeleton) []Skeleton {
+	var out []Skeleton
+	for _, s := range sks {
+		if s.DefinedIn == "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }

@@ -331,7 +331,11 @@ func (p *Pilot) attempt(ctx context.Context, g Genome, key string, prior []strin
 		}
 		return a, "", fmt.Errorf("model call failed (is Ollama running?): %w", cerr)
 	}
-	reply, perr := ParseReply(comp.Text, b.Paths, specDir+"/")
+	stepsPath := ""
+	if g.Caste == Tester {
+		stepsPath = StepFileFor(sc.File)
+	}
+	reply, perr := ParseReply(comp.Text, b.Paths, specDir+"/", stepsPath, len(b.ToWrite))
 	a.Action, a.Path, a.Note = reply.Action, reply.Path, reply.Note
 	if perr != nil {
 		a.Reason = "invalid reply: " + perr.Error()
@@ -357,6 +361,14 @@ func (p *Pilot) attempt(ctx context.Context, g Genome, key string, prior []strin
 	old := ""
 	if s := saved[reply.Path]; s != nil {
 		old = *s
+	}
+	if stepsPath != "" && reply.Path == stepsPath {
+		// The harness writes the step file from the bodies (see stepfile.go).
+		var add []StepDef
+		for i, s := range b.ToWrite {
+			add = append(add, StepDef{Keyword: s.Keyword, Expression: s.Expression, Params: s.Params, Body: reply.Bodies[i]})
+		}
+		reply.Content = RenderStepFile(MergeSteps(ParseStepFile(old), add))
 	}
 	if err := p.ws.Write(reply.Path, reply.Content); err != nil {
 		return a, "", err
@@ -519,16 +531,21 @@ func (p *Pilot) bundle(g Genome, sc honey.Scenario, snap honey.Snapshot, prior [
 		}
 		defined := map[string]string{}
 		for _, f := range steps {
+			c, _, _ := p.ws.Read(f)
 			if f != StepFileFor(sc.File) {
-				c, _, _ := p.ws.Read(f)
 				b.ReadOnly[f] = c
+			}
+			// Steps of this feature's own file are written again (and so can
+			// be repaired); steps of other files are shared and stay as they are.
+			if f != StepFileFor(sc.File) {
 				for _, e := range RegisteredExpressions(c) {
 					defined[e] = f
 				}
 			}
 		}
 		feat, _ := snap.Feature(sc.File)
-		b.Skeletons = RenderSkeletons(Skeletons(feat, sc, defined))
+		b.Skeletons = Skeletons(feat, sc, defined)
+		b.ToWrite = Pending(b.Skeletons)
 	case Worker:
 		b.Paths = []string{gameFile, spec}
 		if c, ok, _ := p.ws.Read(StepFileFor(sc.File)); ok {

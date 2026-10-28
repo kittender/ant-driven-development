@@ -101,6 +101,13 @@ func reply(action Action, path, content string) string {
 	return string(b)
 }
 
+// steps is a tester reply: the same body for each of the 3 step skeletons
+// of the test feature (When, Then, Then).
+func steps(body string) string {
+	b, _ := json.Marshal(Reply{Note: "n", Action: Write, Path: "tests/steps/01_start_game.steps.ts", Bodies: []string{body, body, body}})
+	return string(b)
+}
+
 func runPilot(t *testing.T, ws, out string, script func(req model.Request, call int) string) *Pilot {
 	t.Helper()
 	fake := &model.Fake{Reply: func(req model.Request, call int) (string, error) { return script(req, call), nil }}
@@ -118,7 +125,7 @@ func TestPilotGreenAfterARevert(t *testing.T) {
 		user := req.Messages[0].Content
 		switch {
 		case strings.Contains(user, "Write the step definitions"):
-			return reply(Write, "tests/steps/01_start_game.steps.ts", "Given steps")
+			return steps("Given steps")
 		case call == 1: // the worker's first try does not compile
 			return reply(Write, "src/game/game.ts", "SYNTAX")
 		default:
@@ -152,7 +159,7 @@ func TestPilotDeadEndRestoresFiles(t *testing.T) {
 	ws, out := setup(t)
 	p := runPilot(t, ws, out, func(req model.Request, call int) string {
 		if strings.Contains(req.Messages[0].Content, "Write the step definitions") {
-			return reply(Write, "tests/steps/01_start_game.steps.ts", "SYNTAX")
+			return steps("SYNTAX")
 		}
 		t.Fatal("no worker phase after a tester dead end")
 		return ""
@@ -172,7 +179,7 @@ func TestPilotWeakenedHoneyIsNotGreen(t *testing.T) {
 	p := runPilot(t, ws, out, func(req model.Request, call int) string {
 		user := req.Messages[0].Content
 		if strings.Contains(user, "Write the step definitions") {
-			return reply(Write, "tests/steps/01_start_game.steps.ts", "steps")
+			return steps("steps")
 		}
 		if call == 1 {
 			// The worker edits its own scenario's honey, and the game.
@@ -219,13 +226,13 @@ func TestPilotProposalIsNotApplied(t *testing.T) {
 
 func TestParseReplyMenu(t *testing.T) {
 	paths := []string{"src/game/game.ts", "spec/01_start_game.feature"}
-	if _, err := ParseReply(reply(Write, "../etc/passwd", "x"), paths, "spec/"); err == nil {
+	if _, err := ParseReply(reply(Write, "../etc/passwd", "x"), paths, "spec/", "", 0); err == nil {
 		t.Fatal("a path outside the menu must be refused")
 	}
-	if _, err := ParseReply(reply(ProposeHoney, "src/game/game.ts", "x"), paths, "spec/"); err == nil {
+	if _, err := ParseReply(reply(ProposeHoney, "src/game/game.ts", "x"), paths, "spec/", "", 0); err == nil {
 		t.Fatal("propose_honey must name a spec file")
 	}
-	if _, err := ParseReply("not json", paths, "spec/"); err == nil {
+	if _, err := ParseReply("not json", paths, "spec/", "", 0); err == nil {
 		t.Fatal("bad json must be refused")
 	}
 }
@@ -257,7 +264,7 @@ func TestRetriesAreNewDraws(t *testing.T) {
 	seeds := map[int64]bool{}
 	runPilot(t, ws, out, func(req model.Request, call int) string {
 		seeds[req.Seed] = true
-		return reply(Write, "tests/steps/01_start_game.steps.ts", "SYNTAX")
+		return steps("SYNTAX")
 	})
 	if len(seeds) != 3 {
 		t.Fatalf("3 attempts must use 3 seeds, got %v", seeds)
@@ -285,9 +292,9 @@ func TestWorkerRevealsHiddenStep(t *testing.T) {
 		u := req.Messages[0].Content
 		if strings.Contains(u, "Write the step definitions") {
 			if strings.Contains(u, "steps") && call > 0 {
-				return reply(Write, "tests/steps/01_start_game.steps.ts", "steps with turn step"), nil
+				return steps("steps with turn step"), nil
 			}
-			return reply(Write, "tests/steps/01_start_game.steps.ts", "steps"), nil
+			return steps("steps"), nil
 		}
 		return reply(Write, "src/game/game.ts", "// IMPLEMENTED"), nil
 	}}
@@ -301,5 +308,91 @@ func TestWorkerRevealsHiddenStep(t *testing.T) {
 	}
 	if !strings.Contains(p.attempts[1].Reason, "back to the tester") {
 		t.Fatalf("attempt 2: %+v", p.attempts[1])
+	}
+}
+
+func TestStepFileAssembly(t *testing.T) {
+	defs := []StepDef{
+		{Keyword: "When", Expression: "I start a new game", Body: "world.game = game.newGame();"},
+		{Keyword: "Then", Expression: "it should be player {string}'s turn", Params: []string{"text: string"}, Body: "const p: Player = text === 'X' ? 'X' : 'O';\nexpect(world.game.turn).toBe(p);"},
+		{Keyword: "Given", Expression: "the board is:", Params: []string{"table: DataTable"}, Body: "world.game = game.fromRows(table.raw().map((r) => r.join(' ')));"},
+	}
+	src := RenderStepFile(defs)
+	for _, want := range []string{
+		"import { expect } from 'vitest';",
+		"import { Given, When, Then, type DataTable } from './world';",
+		"import { game } from '../../src/game/game';",
+		"import type { Player } from '../../src/game/contract';",
+		`Then("it should be player {string}'s turn", (world, text: string) => {`,
+		"  expect(world.game.turn).toBe(p);",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("missing %q in:\n%s", want, src)
+		}
+	}
+	back := ParseStepFile(src)
+	if len(back) != 3 || back[1].Body != defs[1].Body || back[2].Params[0] != "table: DataTable" {
+		t.Fatalf("round trip: %+v", back)
+	}
+	merged := MergeSteps(back, []StepDef{{Keyword: "Then", Expression: "the game status should be {string}", Params: []string{"text: string"}, Body: "expect(world.game.status).toBe(text);"}})
+	if len(merged) != 4 || !strings.Contains(RenderStepFile(merged), "the game status") {
+		t.Fatal("merge")
+	}
+	if strings.Contains(RenderStepFile(defs[:1]), "expect") || strings.Contains(RenderStepFile(defs[:1]), "Then") {
+		t.Fatal("unused imports must be left out")
+	}
+}
+
+func TestCleanBody(t *testing.T) {
+	if b, err := CleanBody("```ts\n    world.game = game.newGame();\n```"); err != nil || b != "world.game = game.newGame();" {
+		t.Fatalf("%q %v", b, err)
+	}
+	if b, _ := CleanBody("{\n  a();\n  b();\n}"); b != "a();\nb();" {
+		t.Fatalf("%q", b)
+	}
+	if _, err := CleanBody("Then('x', (world) => { a(); });"); err == nil {
+		t.Fatal("a registration must be refused")
+	}
+	if _, err := CleanBody("  "); err == nil {
+		t.Fatal("empty must be refused")
+	}
+}
+
+func TestBodiesCount(t *testing.T) {
+	paths := []string{"tests/steps/f.steps.ts", "spec/f.feature"}
+	r, _ := json.Marshal(Reply{Action: Write, Path: "tests/steps/f.steps.ts", Bodies: []string{"a();"}})
+	if _, err := ParseReply(string(r), paths, "spec/", "tests/steps/f.steps.ts", 2); err == nil || !strings.Contains(err.Error(), "1 bodies sent, 2") {
+		t.Fatalf("%v", err)
+	}
+	r, _ = json.Marshal(Reply{Action: Write, Path: "spec/f.feature", Content: "Feature: x"})
+	if _, err := ParseReply(string(r), paths, "spec/", "tests/steps/f.steps.ts", 2); err != nil {
+		t.Fatalf("a honey write needs content, not bodies: %v", err)
+	}
+}
+
+// The tester's reply only carries bodies; the step file on disk is the
+// harness's, with the exact first lines.
+func TestPilotWritesTheStepFile(t *testing.T) {
+	ws, out := setup(t)
+	runPilot(t, ws, out, func(req model.Request, call int) string {
+		u := req.Messages[0].Content
+		if strings.Contains(u, "Write the step definitions") {
+			if !strings.Contains(u, "// Step 3") || !strings.Contains(u, "exactly 3 bodies") {
+				t.Errorf("the bundle must number the skeletons:\n%s", u)
+			}
+			return steps("expect(world.game).toBeDefined();")
+		}
+		return reply(Write, "src/game/game.ts", "// IMPLEMENTED")
+	})
+	src, _, _ := (Workspace{ws}).Read("tests/steps/01_start_game.steps.ts")
+	if !strings.Contains(src, `Then("it should be player {string}'s turn", (world, text: string) => {`) || !strings.Contains(src, "import { expect } from 'vitest';") {
+		t.Fatalf("step file:\n%s", src)
+	}
+}
+
+func TestCleanBodyKeepsInnerIndent(t *testing.T) {
+	b, err := CleanBody("    if (x) {\n      y();\n    }\n")
+	if err != nil || b != "if (x) {\n  y();\n}" {
+		t.Fatalf("%q %v", b, err)
 	}
 }
