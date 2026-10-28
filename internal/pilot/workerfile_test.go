@@ -150,7 +150,7 @@ func TestPilotWorkerBodies(t *testing.T) {
 	if !p.runs[0].CountedOK {
 		t.Fatalf("%+v", p.runs[0])
 	}
-	if !strings.Contains(retry, "Hint: The contract's types are readonly") || !strings.Contains(retry, "Body 1: newGame") {
+	if !strings.Contains(retry, "Hint: The contract's types are readonly") || !strings.Contains(retry, "- newGame (not implemented yet). Contract: newGame(): GameState;") {
 		t.Fatalf("retry bundle:\n%s", retry)
 	}
 	if p.attempts[1].Lost != "code" || strings.Join(p.attempts[1].Hints, ",") != "readonly" {
@@ -168,5 +168,42 @@ func TestPilotWorkerBodies(t *testing.T) {
 		if !strings.Contains(string(rep), want) {
 			t.Fatalf("report lacks %q:\n%s", want, rep)
 		}
+	}
+}
+
+func TestCleanWorkerBodyRunThreeEchoes(t *testing.T) {
+	// The two forms run 3's workers sent, from sessions 2 and 3.
+	for _, raw := range []string{
+		"  const newGame: GameApi['newGame'] = () => ({\n    board: [],\n    turn: 'X'\n  });",
+		"const restart: GameApi['restart'] = (match) => ({\n  ...match,\n  game: newGame()\n});",
+	} {
+		name := "newGame"
+		if strings.Contains(raw, "restart") {
+			name = "restart"
+		}
+		b, un, err := CleanWorkerBody(raw, name)
+		if err != nil || !un || !strings.HasPrefix(b, "  return ({") || !strings.HasSuffix(b, "});") {
+			t.Errorf("%q → %q %v %v", raw, b, un, err)
+		}
+	}
+	if b, _, _ := CleanWorkerBody("const play: GameApi['play'] = (state) => state.turn === 'X' ? a : b;", "play"); b != "  return state.turn === 'X' ? a : b;" {
+		t.Errorf("one-line arrow → %q", b)
+	}
+	// A declaration of another method nested in a body is refused.
+	if _, _, err := CleanWorkerBody("  const x = 1;\n  const newMatch: GameApi['newMatch'] = () => x;", "newGame"); err == nil {
+		t.Error("a nested method declaration must be refused")
+	}
+}
+
+func TestNamedMethodsReply(t *testing.T) {
+	ms := ContractMethods(realAPI)
+	r, _ := json.Marshal(Reply{Note: "n", Action: Write, Path: gameFile, Methods: map[string]string{"restart": "  return match;"}})
+	got, err := ParseReply(string(r), []string{gameFile, "spec/x.feature"}, "spec/", "", nil, ms...)
+	if err != nil || len(got.Bodies) != 6 || got.Bodies[5] != "  return match;" || got.Bodies[0] != "" {
+		t.Fatalf("%v %q", err, got.Bodies)
+	}
+	sch, _ := json.Marshal(replySchema([]string{gameFile}, false, ms))
+	if !strings.Contains(string(sch), `"methods"`) || !strings.Contains(string(sch), `"playInMatch"`) || strings.Contains(string(sch), `"bodies"`) {
+		t.Fatalf("schema %s", sch)
 	}
 }

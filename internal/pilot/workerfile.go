@@ -148,16 +148,27 @@ func RenderGameFile(gf GameFile, methods []Method) (src string, dropped []string
 // RenderMethods is the numbered list a worker writes bodies for.
 func RenderMethods(methods []Method, gf GameFile) string {
 	var b strings.Builder
-	for i, m := range methods {
+	for _, m := range methods {
 		state := "not implemented yet"
 		if _, ok := gf.Bodies[m.Name]; ok {
-			state = "implemented (send an empty body to keep it as it is)"
+			state = "implemented; an empty body keeps it"
 		}
-		fmt.Fprintf(&b, "Body %d: %s, %s\n  contract: %s\n  first line (written by the Ecosystem): const %s: GameApi['%s'] = (%s) => {\n",
-			i+1, m.Name, state, m.Sig, m.Name, m.Name, strings.Join(m.Params, ", "))
+		fmt.Fprintf(&b, "- %s (%s). Contract: %s Parameters in scope: %s.\n", m.Name, state, m.Sig, paramList(m.Params))
 	}
+	b.WriteString("\nThe Ecosystem writes each method's declaration; a body is only the statements inside it, ending with a return.\n")
 	return b.String()
 }
+
+func paramList(ps []string) string {
+	if len(ps) == 0 {
+		return "none"
+	}
+	return strings.Join(ps, ", ")
+}
+
+var methodDecl = regexp.MustCompile(`GameApi\['\w+'\]\s*=`)
+
+func declaresMethod(body string) bool { return methodDecl.MatchString(body) }
 
 var contractImport = regexp.MustCompile(`(?m)^\s*import\s+type\s+\{[^}]*\}\s+from\s+'\./contract';?[ \t]*\n?`)
 
@@ -173,12 +184,23 @@ func CleanWorkerBody(raw, name string) (string, bool, error) {
 		return "", false, nil
 	}
 	unwrapped := false
-	head := regexp.MustCompile(`^\s*(?:export\s+)?(?:const\s+|let\s+|function\s+|async\s+)?` + name + `\b[^\n]*\{[ \t]*\n`)
-	if loc := head.FindStringIndex(body); loc != nil {
-		rest := strings.TrimRight(body[loc[1]:], " \t\n;,")
-		if strings.HasSuffix(rest, "}") {
-			body, unwrapped = strings.Trim(strings.TrimSuffix(rest, "}"), "\n"), true
+	head := regexp.MustCompile(`^\s*(?:export\s+)?(?:const\s+|let\s+|var\s+|function\s+|async\s+)?` + name + `\b`)
+	if head.MatchString(body) {
+		block := regexp.MustCompile(`^[^\n]*\{[ \t]*\n`)
+		rest := strings.TrimRight(body, " \t\n;,")
+		if loc := block.FindStringIndex(body); loc != nil && !strings.Contains(body[:loc[1]], "=> ({") && strings.HasSuffix(rest, "}") {
+			// Block body: name(...) { … } or const name = (...) => { … };
+			inner := strings.TrimRight(body[loc[1]:], " \t\n;,")
+			body, unwrapped = strings.Trim(strings.TrimSuffix(inner, "}"), "\n"), true
+		} else if i := strings.Index(body, "=>"); i >= 0 {
+			// Expression arrow (run 3's gap): const name = (...) => ({ … }); → return ({ … });
+			if expr := strings.TrimSpace(rest[i+2:]); expr != "" {
+				body, unwrapped = "  return "+expr+";", true
+			}
 		}
+	}
+	if declaresMethod(body) {
+		return "", unwrapped, fmt.Errorf("the body of %s declares a contract method: send only the code inside the method (the Ecosystem writes its declaration)", name)
 	}
 	for _, l := range strings.Split(body, "\n") {
 		t := strings.TrimSpace(l)

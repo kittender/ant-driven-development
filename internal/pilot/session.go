@@ -66,17 +66,17 @@ const workerA = `You are a worker ageant in an ADD colony: one small change, the
 Your task: change the game code so that ONE capped scenario passes, without breaking a scenario that already passes.
 ` + honeyRule + `
 What you write:
-- You send one body per contract method, in order: only the code inside the method. The Ecosystem writes src/game/game.ts: the imports, each method's first line (typed by the contract, parameters included), the closing brackets and the export.
+- You send one body per contract method, by name: only the statements inside the method, ending with a return. The Ecosystem writes src/game/game.ts: the imports, each method's declaration (typed by the contract, parameters in scope), the closing brackets and the export.
 - An empty body keeps that method as it is now. Send a body only for the methods this scenario needs.
 - helpers: top-level functions and constants your bodies share (for example a winner check), placed before the methods. Empty keeps the current helpers; otherwise send the whole new helpers section.
 - The contract's state is readonly: return new objects ({ ...state, turn: 'O' }), never assign to a property.
 - Pure functions, no DOM. Never change the contract or the tests. TypeScript is strict: no implicit any.`
 
 const workerB = `You implement tic-tac-toe rules in TypeScript, one scenario at a time.
-The game is the contract's GameApi; its methods' first lines are written for you, and you write what each method does, so that the target scenario's tests pass and every passing scenario keeps passing.
+The game is the contract's GameApi; its methods' declarations are written for you, and you write what each method does, so that the target scenario's tests pass and every passing scenario keeps passing.
 ` + honeyRule + `
 How to answer:
-- bodies: one per contract method, in the order given; the code inside the method only, no first line, no imports. An empty body leaves the method unchanged.
+- methods: one field per contract method; the statements inside the method only (no declaration, no imports), ending with a return. An empty field leaves the method unchanged.
 - helpers: shared top-level code placed before the methods (empty = keep the current helpers).
 - State is immutable (readonly types): build new objects with spread; do not mutate.
 - Do just what the scenario needs. Pure functions, no DOM, strict TypeScript.`
@@ -97,7 +97,10 @@ type Reply struct {
 	Path    string   `json:"path"`
 	Bodies  []string `json:"bodies,omitempty"`  // testers: one per step skeleton; workers: one per contract method
 	Helpers string   `json:"helpers,omitempty"` // workers: shared top-level code (reflex 4)
-	Content string   `json:"content"`
+	// Methods: workers, one body per contract method by name (run 4); ParseReply
+	// turns it into Bodies in contract order.
+	Methods map[string]string `json:"methods,omitempty"`
+	Content string            `json:"content"`
 	// Unwrapped lists the bodies (1-based) reflex 3 unwrapped; set by ParseReply.
 	Unwrapped []int `json:"-"`
 }
@@ -105,7 +108,7 @@ type Reply struct {
 // replySchema: the note first (rule 3), every field required (rule 2), the
 // path a closed choice the Ecosystem gave (rule 4). "none" goes with cannot.
 // Testers also send bodies: one per step skeleton (the harness writes the file).
-func replySchema(paths []string, bodies, helpers bool) map[string]any {
+func replySchema(paths []string, bodies bool, methods []Method) map[string]any {
 	enum := append(append([]string{}, paths...), "none")
 	fields := []model.Field{
 		{Name: "note", Schema: map[string]any{"type": "string"}},
@@ -115,8 +118,14 @@ func replySchema(paths []string, bodies, helpers bool) map[string]any {
 	if bodies {
 		fields = append(fields, model.Field{Name: "bodies", Schema: map[string]any{"type": "array", "items": map[string]any{"type": "string"}}})
 	}
-	if helpers {
-		fields = append(fields, model.Field{Name: "helpers", Schema: map[string]any{"type": "string"}})
+	if len(methods) > 0 {
+		var mf []model.Field
+		for _, m := range methods {
+			mf = append(mf, model.Field{Name: m.Name, Schema: map[string]any{"type": "string"}})
+		}
+		fields = append(fields,
+			model.Field{Name: "methods", Schema: model.ObjectSchema(mf...)},
+			model.Field{Name: "helpers", Schema: map[string]any{"type": "string"}})
 	}
 	fields = append(fields, model.Field{Name: "content", Schema: map[string]any{"type": "string"}})
 	return model.ObjectSchema(fields...)
@@ -162,6 +171,12 @@ func ParseReply(raw string, paths []string, specPrefix, stepsPath string, expect
 			return r, nil
 		}
 		if len(methods) > 0 && r.Path == gameFile {
+			if r.Methods != nil {
+				r.Bodies = make([]string, len(methods))
+				for i, m := range methods {
+					r.Bodies[i] = r.Methods[m.Name]
+				}
+			}
 			if len(r.Bodies) != len(methods) {
 				return r, fmt.Errorf("%d bodies sent, %d contract methods: send exactly one body per method, in order (an empty body keeps a method as it is)", len(r.Bodies), len(methods))
 			}
@@ -287,9 +302,9 @@ func (b Bundle) User() string {
 		s.WriteString(fmt.Sprintf("- write the steps: path is %s; bodies is a list of exactly %d bodies, one per step skeleton to write, in order (Step 1 first); content is empty.\n", StepFileFor(b.Scenario.File), len(b.ToWrite)))
 		s.WriteString("- write the honey: path is " + specDir + "/" + b.Scenario.File + "; content is the whole feature file; bodies is empty.\n")
 	} else if len(b.Methods) > 0 {
-		s.WriteString("\n## YOUR REPLY\n\nOne JSON object: note (what you will do, one or two sentences), then action, path, bodies, helpers, content.\n")
-		s.WriteString(fmt.Sprintf("- write the game: path is %s; bodies is a list of exactly %d bodies, one per contract method, in order (Body 1 first), each the code inside the method or empty to keep it; helpers is the shared code or empty to keep it; content is empty.\n", gameFile, len(b.Methods)))
-		s.WriteString("- write the honey: path is " + specDir + "/" + b.Scenario.File + "; content is the whole feature file; bodies is empty.\n")
+		s.WriteString("\n## YOUR REPLY\n\nOne JSON object: note (what you will do, one or two sentences), then action, path, methods, helpers, content.\n")
+		s.WriteString(fmt.Sprintf("- write the game: path is %s; methods has one field per contract method (%s), each the statements inside that method, or empty to keep it as it is; helpers is the shared top-level code (every helper the bodies use), or empty to keep the current helpers; content is empty.\n", gameFile, methodNames(b.Methods)))
+		s.WriteString("- write the honey: path is " + specDir + "/" + b.Scenario.File + "; content is the whole feature file; methods are empty.\n")
 	} else {
 		s.WriteString("\n## YOUR REPLY\n\nOne JSON object: note (what you will do, one or two sentences), then action, path, content.\n")
 		s.WriteString("- write: path is one of " + strings.Join(b.Paths, ", ") + "; content is the whole new file.\n")
@@ -297,6 +312,14 @@ func (b Bundle) User() string {
 	s.WriteString("- propose_honey: path is a spec file from that list; content is the whole feature file as you propose it; a human decides.\n")
 	s.WriteString("- cannot: path is none, content is empty; say why in the note.\n")
 	return s.String()
+}
+
+func methodNames(ms []Method) string {
+	var n []string
+	for _, m := range ms {
+		n = append(n, m.Name)
+	}
+	return strings.Join(n, ", ")
 }
 
 // Request builds the model request for this bundle.
@@ -309,7 +332,7 @@ func (b Bundle) Request(modelSpec string, maxTokens, ctxTokens int) model.Reques
 		Seed:          b.Genome.Seed,
 		MaxTokens:     maxTokens,
 		ContextTokens: ctxTokens,
-		Format:        replySchema(b.Paths, b.Genome.Caste == Tester || len(b.Methods) > 0, len(b.Methods) > 0),
+		Format:        replySchema(b.Paths, b.Genome.Caste == Tester, b.Methods),
 	}
 }
 

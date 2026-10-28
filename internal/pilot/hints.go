@@ -23,6 +23,9 @@ var compilerHints = []struct {
 	{"order", func(f instruments.Finding) bool {
 		return f.Rule == "TS2448" || f.Rule == "TS2454"
 	}, "A name is used before its declaration. Declare helpers with `function name(...) { ... }` (hoisted) or above the code that uses them."},
+	{"missing", func(f instruments.Finding) bool {
+		return (f.Rule == "TS2304" || f.Rule == "TS2552") && strings.HasPrefix(f.File, "src/")
+	}, "A name the code uses is not defined. Define it in helpers, and send every helper the bodies use: helpers replace the current ones."},
 	{"any", func(f instruments.Finding) bool {
 		return f.Rule == "TS7006" || f.Rule == "TS7022" || f.Rule == "TS7031" || f.Rule == "TS7023" || f.Rule == "TS7024"
 	}, "An implicit `any`: annotate the parameter or variable with a contract type (Player, Cell, GameState, Match, Score) and give recursive helpers a return type."},
