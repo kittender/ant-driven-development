@@ -234,7 +234,10 @@ func (p *Pilot) scenario(ctx context.Context, key string) error {
 		p.say("  → %s: %s%s", key, run.End, map[bool]string{true: " (its honey was weakened: not counted)", false: ""}[run.Weakened])
 	}()
 	p.say("scenario %s: %s", key, run.Start)
-	for phase := 0; phase < 3 && p.state(key) != instruments.Green; phase++ {
+	// Up to four phases: tester, worker, and once more each, because a
+	// worker's change can reveal a step with no definition that the first
+	// failure had hidden (the runner stops at the first failing step).
+	for phase := 0; phase < 4 && p.state(key) != instruments.Green; phase++ {
 		caste := Worker
 		if st := p.state(key); st == instruments.Undefined || st == instruments.Missing {
 			caste = Tester
@@ -456,6 +459,11 @@ func (p *Pilot) judge(caste Caste, key string, before, after instruments.Survey)
 		}
 		return true, "steps defined; the scenario is now " + string(r.State) + failureSuffix(r)
 	default:
+		if r.State == instruments.Undefined {
+			// Progress the test had hidden: the scenario now runs further and
+			// reaches a step with no definition. Keep it; the tester is next.
+			return true, "progress: the scenario now reaches a step with no definition (" + firstLine(r.Failure) + "); back to the tester"
+		}
 		if r.State != instruments.Green {
 			return false, "the scenario does not pass: " + r.Failure
 		}
@@ -543,6 +551,9 @@ func (p *Pilot) bundle(g Genome, sc honey.Scenario, snap honey.Snapshot, prior [
 	add("Shared vocabulary (spec/README.md)", specDir+"/README.md", 0)
 	add("📌 Contract: src/game/contract.ts", "src/game/contract.ts", 0)
 	add("Plot (proposed, not grown): garden/game/domain.md", "garden/game/domain.md", 0)
+	if g.Caste == Tester {
+		add("📌 Test scaffold: tests/steps/world.ts (import Given, When, Then from './world')", "tests/steps/world.ts", 0)
+	}
 	if g.Caste == Tester && p.cfg.StepsAPI != "" {
 		if c, ok, _ := p.ws.Read(p.cfg.StepsAPI); ok {
 			body := ExtractSections(c, p.cfg.StepsAPISections)

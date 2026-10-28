@@ -260,3 +260,43 @@ func TestRetriesAreNewDraws(t *testing.T) {
 		t.Fatalf("3 attempts must use 3 seeds, got %v", seeds)
 	}
 }
+
+// A worker whose change reveals a hidden undefined step hands the scenario
+// back to the tester, and the loop goes on to green.
+func TestWorkerRevealsHiddenStep(t *testing.T) {
+	ws, out := setup(t)
+	cmds := instruments.TypeScript()
+	tools := fakeTools(t)
+	run := func(ctx context.Context, dir string, argv ...string) instruments.Output {
+		o := tools(ctx, dir, argv...)
+		if strings.Contains(strings.Join(argv, " "), "vitest") {
+			b, _ := os.ReadFile(filepath.Join(dir, "src/game/game.ts"))
+			steps, _ := os.ReadFile(filepath.Join(dir, "tests/steps/01_start_game.steps.ts"))
+			if strings.Contains(string(b), "IMPLEMENTED") && !strings.Contains(string(steps), "turn step") {
+				writeFile(t, dir, cmds.VitestJSON, `{"testResults":[{"name":"`+dir+`/spec/01_start_game.feature","assertionResults":[{"ancestorTitles":[],"title":"A new game has an empty board","status":"failed","failureMessages":["Undefined. Implement with the following snippet: Then('it should be player {string}'s turn'"]}]}]}`)
+			}
+		}
+		return o
+	}
+	fake := &model.Fake{Reply: func(req model.Request, call int) (string, error) {
+		u := req.Messages[0].Content
+		if strings.Contains(u, "Write the step definitions") {
+			if strings.Contains(u, "steps") && call > 0 {
+				return reply(Write, "tests/steps/01_start_game.steps.ts", "steps with turn step"), nil
+			}
+			return reply(Write, "tests/steps/01_start_game.steps.ts", "steps"), nil
+		}
+		return reply(Write, "src/game/game.ts", "// IMPLEMENTED"), nil
+	}}
+	p := New(Config{Workspace: ws, Model: "fake:w", Gateway: model.NewGateway(fake), Run: run, Commands: cmds, Out: out, MaxTokens: 10, ContextTokens: 10})
+	if err := p.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	r := p.runs[0]
+	if !r.CountedOK || r.Attempts != 3 {
+		t.Fatalf("want tester, worker (reveals), tester, then green: %+v", r)
+	}
+	if !strings.Contains(p.attempts[1].Reason, "back to the tester") {
+		t.Fatalf("attempt 2: %+v", p.attempts[1])
+	}
+}

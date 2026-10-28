@@ -48,9 +48,9 @@ You never write game code. The test you write is right when the scenario runs an
 Rules for the step file:
 - Write the whole file for this feature (it replaces the old one). Keep every step already in it.
 - A step already defined in another step file is shared: do not define it again.
-- Use exactly the step wording of the feature file. Use cucumber expressions such as {string} and {int} for the values.
-- Import the game as: import { game } from '../../src/game/game'; and types from '../../src/game/contract'.
-- Import expect from 'vitest' and Given, When, Then from 'quickpickle'. The first parameter of every step is the world object; keep the game state on it.
+- Use exactly the step wording of the feature file. Values become cucumber expressions: {string} matches a quoted value including its quotes, so the step text player "X"'s turn is written player {string}'s turn; {int} matches a number.
+- Import Given, When, Then (and DataTable, World if you need them) from './world', never from 'quickpickle': './world' gives every step a typed world (see the test scaffold).
+- Import the game as: import { game } from '../../src/game/game'; types with import type from '../../src/game/contract'; expect from 'vitest'.
 - TypeScript is strict: no implicit any, and array indexes may be undefined.`
 
 const testerB = `You write tests for one scenario of a tic-tac-toe specification, and nothing else.
@@ -60,9 +60,9 @@ Your file must compile, must not change other tests, and must make this scenario
 How to write the file:
 - Return the complete step file of this feature; it replaces the previous version, so keep what was there.
 - Never redefine a step that another step file already defines.
-- Copy the step text exactly; put {string} and {int} where the values are.
-- Use: import { Given, When, Then } from 'quickpickle'; import { expect } from 'vitest'; import { game } from '../../src/game/game'; and types from '../../src/game/contract'.
-- Each step receives the world first; store the state there. Strict TypeScript.`
+- Copy the step text exactly; put {string} where a quoted value is (the quotes belong to {string}: player {string}'s turn) and {int} where a number is.
+- Use: import { Given, When, Then } from './world'; import { expect } from 'vitest'; import { game } from '../../src/game/game'; import type for the types of '../../src/game/contract'.
+- Each step receives the typed world first; store the state there. Strict TypeScript.`
 
 const workerA = `You are a worker ageant in an ADD colony: one small change, then you end.
 Your task: change src/game/game.ts so that ONE capped scenario passes, without breaking a scenario that already passes.

@@ -11,6 +11,7 @@ The first ADD benchmark implementation. The colony builds it from its own honey 
 | `src/game/contract.ts` | 📌 the public API of the rules, types only | Human fixes it |
 | `src/game/game.ts` | The implementation, empty | Workers |
 | `tests/steps/` | Step definitions that bind the spec to the contract | Testers (never the workers of the same cell) |
+| `tests/steps/world.ts` | 📌 test scaffold: typed `World` and typed `Given`/`When`/`Then` (quickpickle types the world as `any`) | Human fixes it |
 | `src/ui/`, `src/main.ts` | The page, after the rules are green | Workers, later |
 | `garden/game/domain.md` | Proposed plot: rules are a pure module | Human or gardener quorum grows it |
 
