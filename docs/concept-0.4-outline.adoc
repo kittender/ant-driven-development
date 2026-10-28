@@ -385,6 +385,23 @@ Asked by the human: change the three things run 1 showed, "in order to have the 
 
 *Not a rule.* Run 1 against run 2 is reported side by side (1/22 against the new count); with one change set it is a direction, not a measurement of each change.
 
+== Results: run 2 of the first loop (2026-10-28)
+
+Run `20261028-190735`: clean workspace (22 undefined at start), changes and rules as fixed in "Run 2 of the first loop". 75 sessions, 439k tokens, 71 minutes. Rules applied unchanged.
+
+[%header,cols="2,1,3"]
+|===
+| Rule | Result | Decision
+| Green without help (Part B) | *1 / 22* | *Not supported* on qwen3:8b with these bundles
+| Sessions lost before any test ran | *58 / 75 (77%)* | Above 50%: *the interface is still the bottleneck*; nothing is drawn about the model or ADD from this run
+| Green with a reflex in an accepted session | 1 of 1 | Reported: the one green (scenario 01) had an auto-import in its accepted session
+| Weakened honey | none kept | No finding. Five `propose_honey` actions by worker-a, none applied: their notes describe code fixes, and the proposed files only drop the apostrophe of `player "X"'s turn` or a final newline. A wrong action, not an intent to change the spec; each cost an attempt
+|===
+
+*What moved from run 1.* Testers: 13 invalid replies against 36; the unwrap reflex fired 48 times. More scenarios reached the worker phase (12 worker dead ends against 5) and 5 testers were accepted against 4. Workers: 27 compile failures, now mostly `TS2322` (type mismatch) and `TS2540`/`TS2542` (assignment to a `readonly` property): the workers mutate the contract's immutable `GameState`, which is the plot's decision, not a quirk of the interface. Three rejected attempts made their scenario pass at runtime. Two changes broke another scenario and were reverted.
+
+*Reading the rule honestly.* The "lost before any test ran" measure counts compile errors as interface losses, as written before the run. In run 2 most compile errors are about the code itself (immutability, types against the contract), so the share overstates the interface's part. The rule's verdict stands; the next step should separate the two before another run.
+
 == Architecture 0.1 → 0.2
 
 * *Components*: an Instruments component (or Sensor extension) appending `Deposited` events with an instrument actor.
