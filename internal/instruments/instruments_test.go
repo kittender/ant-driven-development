@@ -214,3 +214,18 @@ func TestExecRunsDetached(t *testing.T) {
 		t.Fatal("a detached tool must not be able to write to the terminal")
 	}
 }
+
+func TestCoverageRealQuirks(t *testing.T) {
+	// The workspace path spelled NFC (é), the tool's path NFD (e + U+0301).
+	root := "/Users/m/Documents/Développement/add/benchmarks/tictactoe/typescript"
+	tool := "/Users/m/Documents/Développement/add/benchmarks/tictactoe/typescript"
+	out := `{"` + tool + `/src/game/contract.ts":{"path":"` + tool + `/src/game/contract.ts","fnMap":{"0":{"name":"(empty-report)","decl":{"start":{"line":1}}}},"f":{"0":0}},
+	 "` + tool + `/src/game/game.ts":{"path":"` + tool + `/src/game/game.ts","fnMap":{"0":{"name":"newGame","decl":{"start":{"line":4}}}},"f":{"0":0}}}`
+	cov, un, err := ParseCoverage(root, []byte(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cov) != 1 || cov[0].File != "src/game/game.ts" || len(un) != 1 || un[0].File != "src/game/game.ts" {
+		t.Fatalf("%+v %+v", cov, un)
+	}
+}

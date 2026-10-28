@@ -361,6 +361,30 @@ Run `20261028-175832`: qwen3:8b, all 22 capped scenarios from a clean workspace,
 
 *Proposed next run, rules to be fixed before it.* (1) Reflex 3: a body that is a whole registration of the expected expression is unwrapped instead of refused. (2) A decision on `noUncheckedIndexedAccess` (keep, relax in tests, or a typed `cellAt` helper in the contract). (3) Coverage parser: skip `(empty-report)`, normalise Unicode before `rel()`. Then a second decision run under the same Part B table.
 
+== Run 2 of the first loop (fixed before any change and any run, 2026-10-28)
+
+Asked by the human: change the three things run 1 showed, "in order to have the next run actually measure something on ADD". Everything else stays as in run 1: same seed honey, contract, typed world, model (qwen3:8b), genomes, attempts (2 + 1), Part B table.
+
+*Changes.*
+
+. *Reflex 3, unwrap.* A tester body that is a whole registration (`Then("…", (…) => { … });`) whose expression is exactly the expected one is unwrapped to its inside and kept. A registration with any other expression is still refused. Each unwrap is logged with its attempt.
+. *`noUncheckedIndexedAccess` off* in the workspace `tsconfig.json`. `strict` stays on. Founding decision drafted by Claude, approved by the human before the run.
+. *Coverage parser fixes:* no finding for Istanbul's `(empty-report)` placeholder; workspace-relative paths even when the tool spells the path's accents differently (NFC/NFD).
+. *Guard against vacuous steps* (added while designing change 1, still before any run): a body that is empty once comments are removed is refused, and so is a `Then` body with no `expect(`. Run 1 had bodies that were only `// body 2`; once unwrapped, such a Then would pass without checking anything, a silent weakening of the honey.
+
+*Rules, in addition to the Part B table (unchanged).*
+
+[%header,cols="2,3"]
+|===
+| Result | Decision
+| Share of sessions lost before any test ran (invalid reply or compile error) > 50% | The interface is still the bottleneck: change it before drawing anything about the model or ADD
+| That share ≤ 25% | The run measures the colony's work on the game; the Part B verdict stands for ADD with qwen3:8b on this task
+| Between | Open: report both
+| Green scenarios | Reported in two counts: with no reflex edit in their accepted sessions, and with one. Both count under Part B; the split is reported, not ruled on
+|===
+
+*Not a rule.* Run 1 against run 2 is reported side by side (1/22 against the new count); with one change set it is a direction, not a measurement of each change.
+
 == Architecture 0.1 → 0.2
 
 * *Components*: an Instruments component (or Sensor extension) appending `Deposited` events with an instrument actor.

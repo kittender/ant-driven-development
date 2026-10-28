@@ -99,10 +99,33 @@ func (p *Pilot) WriteReport() error {
 		}
 	}
 	w("| Writes rejected by the Prover | %d |", rejectedWrites)
-	w("| Writes a reflex edited (auto-import) | %d, of which accepted %d |", reflexes, reflexAccepted)
+	w("| Writes a reflex edited (auto-import, unwrap) | %d, of which accepted %d |", reflexes, reflexAccepted)
+	lost := 0
+	for _, a := range p.attempts {
+		if !a.Accepted && (strings.HasPrefix(a.Reason, "invalid reply") || strings.HasPrefix(a.Reason, "it does not compile")) {
+			lost++
+		}
+	}
+	if calls > 0 {
+		w("| Sessions lost before any test ran (invalid reply or compile) | %d (%.0f%%) |", lost, 100*float64(lost)/float64(calls))
+	}
 	w("| … of which broke another scenario | %d |", regressions)
 	w("")
 
+	withReflex := 0
+	for _, r := range p.runs {
+		if !r.CountedOK {
+			continue
+		}
+		for _, a := range p.attempts {
+			if a.Scenario == r.Key && a.Accepted && len(a.Reflexes) > 0 {
+				withReflex++
+				break
+			}
+		}
+	}
+	w("Green scenarios with a reflex edit in an accepted session: %d of %d.", withReflex, green)
+	w("")
 	w("## Scenarios")
 	w("")
 	w("| Scenario | Start | End | Counted | Sessions | Dead ends | Seconds |")

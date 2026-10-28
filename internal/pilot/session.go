@@ -50,7 +50,7 @@ What you write:
 - A body receives world (typed: world.game, world.match, world.result, world.before) and the parameters named in its first line.
 - Given and When bodies set up or act through the game API (game.newGame(), game.play(...)); Then bodies check with expect(...).
 - Steps marked as already defined are not yours to write.
-- TypeScript is strict: no implicit any, and array indexes may be undefined.`
+- TypeScript is strict: no implicit any.`
 
 const testerB = `You write tests for one scenario of a tic-tac-toe specification, and nothing else.
 The scenario is written in Gherkin. Each of its steps already has a first line, written by the Ecosystem; you write what each step does.
@@ -70,7 +70,7 @@ Rules:
 - Write the whole file src/game/game.ts (it replaces the old one). Keep what already works.
 - The game rules are pure functions over immutable state. Do not use the DOM.
 - Make the smallest change that makes the scenario pass. Functions not needed yet may keep throwing "not implemented".
-- TypeScript is strict: no implicit any, and array indexes may be undefined.`
+- TypeScript is strict: no implicit any.`
 
 const workerB = `You implement tic-tac-toe rules in TypeScript, one scenario at a time.
 Change only src/game/game.ts. It must satisfy the types in src/game/contract.ts, make the target scenario's tests pass, and keep every passing scenario passing.
@@ -79,7 +79,7 @@ How to write it:
 - Return the complete new src/game/game.ts.
 - Pure functions, immutable state, no DOM. The contract and the tests are fixed.
 - Do just what the scenario needs; leave other functions throwing "not implemented" if they are not needed yet.
-- Strict TypeScript: handle possibly undefined array elements.`
+- Strict TypeScript: no implicit any.`
 
 // Action of a writer session (one per session: rule 5).
 type Action string
@@ -97,6 +97,8 @@ type Reply struct {
 	Path    string   `json:"path"`
 	Bodies  []string `json:"bodies,omitempty"` // testers: one body per step skeleton
 	Content string   `json:"content"`
+	// Unwrapped lists the bodies (1-based) reflex 3 unwrapped; set by ParseReply.
+	Unwrapped []int `json:"-"`
 }
 
 // replySchema: the note first (rule 3), every field required (rule 2), the
@@ -117,8 +119,10 @@ func replySchema(paths []string, bodies bool) map[string]any {
 }
 
 // ParseReply reads and checks a reply against the menu. stepsPath, when
-// set, is the step file the harness writes from nBodies bodies.
-func ParseReply(raw string, paths []string, specPrefix, stepsPath string, nBodies int) (Reply, error) {
+// set, is the step file the harness writes from one body per skeleton in
+// expected.
+func ParseReply(raw string, paths []string, specPrefix, stepsPath string, expected []Skeleton) (Reply, error) {
+	nBodies := len(expected)
 	var r Reply
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &r); err != nil {
 		return r, fmt.Errorf("reply is not the JSON object asked for: %w", err)
@@ -137,7 +141,14 @@ func ParseReply(raw string, paths []string, specPrefix, stepsPath string, nBodie
 				return r, fmt.Errorf("%d bodies sent, %d step skeletons to write: send exactly one body per skeleton, in order", len(r.Bodies), nBodies)
 			}
 			for i, b := range r.Bodies {
+				if inner, ok := Unwrap(b, expected[i].Expression); ok {
+					b = inner
+					r.Unwrapped = append(r.Unwrapped, i+1)
+				}
 				c, err := CleanBody(b)
+				if err == nil {
+					err = CheckBody(c, expected[i].Keyword)
+				}
 				if err != nil {
 					return r, fmt.Errorf("body %d: %w", i+1, err)
 				}

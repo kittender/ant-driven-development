@@ -336,7 +336,10 @@ func (p *Pilot) attempt(ctx context.Context, g Genome, key string, prior []strin
 	if g.Caste == Tester {
 		stepsPath = StepFileFor(sc.File)
 	}
-	reply, perr := ParseReply(comp.Text, b.Paths, specDir+"/", stepsPath, len(b.ToWrite))
+	reply, perr := ParseReply(comp.Text, b.Paths, specDir+"/", stepsPath, b.ToWrite)
+	for _, n := range reply.Unwrapped {
+		a.Reflexes = append(a.Reflexes, fmt.Sprintf("unwrapped body %d", n))
+	}
 	a.Action, a.Path, a.Note = reply.Action, reply.Path, reply.Note
 	if perr != nil {
 		a.Reason = "invalid reply: " + perr.Error()

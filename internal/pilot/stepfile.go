@@ -185,3 +185,62 @@ func MergeSteps(existing, add []StepDef) []StepDef {
 	}
 	return out
 }
+
+var wrappedStep = regexp.MustCompile("(?s)^\\s*(Given|When|Then)\\s*\\(\\s*(\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'|`[^`]*`)\\s*,\\s*(?:async\\s+)?(?:\\([^)]*\\)\\s*=>|\\w+\\s*=>|function\\s*\\([^)]*\\))\\s*\\{(.*)\\}\\s*\\)\\s*;?\\s*$")
+
+// Unwrap is reflex 3 (outline, run 2): a body sent as a whole registration
+// of the expected expression is reduced to its inside. It reports false,
+// and leaves the body alone, when the body is not such a registration or
+// registers another expression (that is still refused by CleanBody).
+func Unwrap(raw, expression string) (string, bool) {
+	m := wrappedStep.FindStringSubmatch(strings.TrimSpace(stripFence(raw)))
+	if m == nil {
+		return raw, false
+	}
+	lit := m[2]
+	var expr string
+	switch lit[0] {
+	case '"':
+		s, err := strconv.Unquote(lit)
+		if err != nil {
+			return raw, false
+		}
+		expr = s
+	case '\'':
+		expr = strings.NewReplacer(`\'`, `'`, `\\`, `\`).Replace(lit[1 : len(lit)-1])
+	default:
+		expr = lit[1 : len(lit)-1]
+	}
+	if expr != expression {
+		return raw, false
+	}
+	return m[3], true
+}
+
+func stripFence(s string) string {
+	t := strings.TrimSpace(s)
+	if strings.HasPrefix(t, "```") {
+		if i := strings.Index(t, "\n"); i >= 0 {
+			t = t[i+1:]
+		}
+		t = strings.TrimSuffix(strings.TrimSpace(t), "```")
+	}
+	return t
+}
+
+var lineComment = regexp.MustCompile(`(?m)//.*$`)
+var blockComment = regexp.MustCompile(`(?s)/\*.*?\*/`)
+
+// CheckBody is the guard against vacuous steps (outline, run 2): a body
+// with no code once comments are removed is refused, and so is a Then body
+// that never calls expect, since it would pass without checking anything.
+func CheckBody(body, keyword string) error {
+	code := strings.TrimSpace(lineComment.ReplaceAllString(blockComment.ReplaceAllString(body, ""), ""))
+	if code == "" {
+		return fmt.Errorf("the body has no code, only comments")
+	}
+	if keyword == "Then" && !strings.Contains(code, "expect(") {
+		return fmt.Errorf("a Then step must check something with expect(...)")
+	}
+	return nil
+}

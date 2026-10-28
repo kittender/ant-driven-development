@@ -15,6 +15,16 @@ func rel(root, p string) string {
 	if r, err := filepath.Rel(root, p); err == nil && !strings.HasPrefix(r, "..") {
 		return filepath.ToSlash(r)
 	}
+	// macOS tools may spell accents decomposed (NFD: e + U+0301) where the
+	// workspace path is composed (NFC: é), or the reverse, so the prefix
+	// does not match. Cut after the workspace folder's own name instead.
+	if filepath.IsAbs(p) {
+		marker := "/" + filepath.Base(root) + "/"
+		sp := filepath.ToSlash(p)
+		if i := strings.LastIndex(sp, marker); i >= 0 {
+			return sp[i+len(marker):]
+		}
+	}
 	return filepath.ToSlash(p)
 }
 
@@ -156,6 +166,9 @@ func ParseCoverage(root string, out []byte) ([]FunctionCoverage, []Finding, erro
 		for _, n := range ids {
 			id := strconv.Itoa(n)
 			fn := f.FnMap[id]
+			if fn.Name == "(empty-report)" {
+				continue // Istanbul's placeholder for a file with no functions (types only)
+			}
 			c := FunctionCoverage{File: rel(root, path), Name: fn.Name, Line: fn.Decl.Start.Line, Calls: f.F[id]}
 			cov = append(cov, c)
 			if c.Calls == 0 {

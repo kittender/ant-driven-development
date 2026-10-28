@@ -101,10 +101,11 @@ func reply(action Action, path, content string) string {
 	return string(b)
 }
 
-// steps is a tester reply: the same body for each of the 3 step skeletons
-// of the test feature (When, Then, Then).
+// steps is a tester reply for the 3 step skeletons of the test feature
+// (When, Then, Then): body for each, the Then bodies with an expect.
 func steps(body string) string {
-	b, _ := json.Marshal(Reply{Note: "n", Action: Write, Path: "tests/steps/01_start_game.steps.ts", Bodies: []string{body, body, body}})
+	then := body + "\nexpect(1).toBe(1);"
+	b, _ := json.Marshal(Reply{Note: "n", Action: Write, Path: "tests/steps/01_start_game.steps.ts", Bodies: []string{body, then, then}})
 	return string(b)
 }
 
@@ -226,13 +227,13 @@ func TestPilotProposalIsNotApplied(t *testing.T) {
 
 func TestParseReplyMenu(t *testing.T) {
 	paths := []string{"src/game/game.ts", "spec/01_start_game.feature"}
-	if _, err := ParseReply(reply(Write, "../etc/passwd", "x"), paths, "spec/", "", 0); err == nil {
+	if _, err := ParseReply(reply(Write, "../etc/passwd", "x"), paths, "spec/", "", nil); err == nil {
 		t.Fatal("a path outside the menu must be refused")
 	}
-	if _, err := ParseReply(reply(ProposeHoney, "src/game/game.ts", "x"), paths, "spec/", "", 0); err == nil {
+	if _, err := ParseReply(reply(ProposeHoney, "src/game/game.ts", "x"), paths, "spec/", "", nil); err == nil {
 		t.Fatal("propose_honey must name a spec file")
 	}
-	if _, err := ParseReply("not json", paths, "spec/", "", 0); err == nil {
+	if _, err := ParseReply("not json", paths, "spec/", "", nil); err == nil {
 		t.Fatal("bad json must be refused")
 	}
 }
@@ -361,11 +362,12 @@ func TestCleanBody(t *testing.T) {
 func TestBodiesCount(t *testing.T) {
 	paths := []string{"tests/steps/f.steps.ts", "spec/f.feature"}
 	r, _ := json.Marshal(Reply{Action: Write, Path: "tests/steps/f.steps.ts", Bodies: []string{"a();"}})
-	if _, err := ParseReply(string(r), paths, "spec/", "tests/steps/f.steps.ts", 2); err == nil || !strings.Contains(err.Error(), "1 bodies sent, 2") {
+	two := []Skeleton{{Keyword: "When", Expression: "a"}, {Keyword: "Then", Expression: "b"}}
+	if _, err := ParseReply(string(r), paths, "spec/", "tests/steps/f.steps.ts", two); err == nil || !strings.Contains(err.Error(), "1 bodies sent, 2") {
 		t.Fatalf("%v", err)
 	}
 	r, _ = json.Marshal(Reply{Action: Write, Path: "spec/f.feature", Content: "Feature: x"})
-	if _, err := ParseReply(string(r), paths, "spec/", "tests/steps/f.steps.ts", 2); err != nil {
+	if _, err := ParseReply(string(r), paths, "spec/", "tests/steps/f.steps.ts", two); err != nil {
 		t.Fatalf("a honey write needs content, not bodies: %v", err)
 	}
 }
@@ -430,5 +432,57 @@ func TestAutoImportKeepsBlankLine(t *testing.T) {
 	out, _ := AutoImportTypes(src, "./contract", ContractTypes(contractSrc))
 	if !strings.HasPrefix(out, "import type { GameApi, GameState } from './contract';\n\nexport const") {
 		t.Fatalf("%q", out)
+	}
+}
+
+// Bodies as qwen3:8b sent them in run 1 (sessions 6, 14 and 39).
+func TestUnwrapRunOneBodies(t *testing.T) {
+	cases := []struct {
+		raw, expr, want string
+		ok              bool
+	}{
+		{`Given("a new game has started", (world) => { world.game = game.newGame(); });`, "a new game has started", "world.game = game.newGame();", true},
+		{`Then("the game should end in a draw", (world) => { expect(world.game.status).toBe('finished'); expect(world.game.draw).toBe(true); })`, "the game should end in a draw", "expect(world.game.status).toBe('finished'); expect(world.game.draw).toBe(true);", true},
+		{`Given("the board is:", (world, table: DataTable) => { world.game = game.fromRows(table.raw().map(row => row.join(' ')), 'X'); })`, "the board is:", "world.game = game.fromRows(table.raw().map(row => row.join(' ')), 'X');", true},
+		{"Then('it should be player {string}\\'s turn', (world, text) => {\n  expect(world.game.turn).toBe(text);\n});", "it should be player {string}'s turn", "expect(world.game.turn).toBe(text);", true},
+		{`Then("another step", (world) => { expect(1).toBe(1); });`, "the expected step", "", false},
+		{"world.game = game.newGame();", "x", "", false},
+	}
+	for _, c := range cases {
+		got, ok := Unwrap(c.raw, c.expr)
+		if ok != c.ok {
+			t.Fatalf("%q: ok=%v", c.raw, ok)
+		}
+		if ok {
+			b, err := CleanBody(got)
+			if err != nil || b != c.want {
+				t.Fatalf("%q: got %q (%v)", c.raw, b, err)
+			}
+		}
+	}
+}
+
+func TestCheckBodyRefusesVacuousSteps(t *testing.T) {
+	if CheckBody("// body 2", "Given") == nil {
+		t.Fatal("a comment-only body must be refused")
+	}
+	if CheckBody("world.game = game.newGame();", "Then") == nil {
+		t.Fatal("a Then without expect must be refused")
+	}
+	if CheckBody("expect(world.game.turn).toBe('X'); // checked", "Then") != nil || CheckBody("world.game = game.newGame();", "Given") != nil {
+		t.Fatal("real bodies must pass")
+	}
+	// Through ParseReply: an unwrapped comment-only body is refused, a real one kept and logged.
+	paths := []string{"tests/steps/f.steps.ts"}
+	exp := []Skeleton{{Keyword: "Given", Expression: "a"}, {Keyword: "Then", Expression: "b"}}
+	r, _ := json.Marshal(Reply{Action: Write, Path: paths[0], Bodies: []string{`Given("a", (world) => { // body 1
+});`, "expect(1).toBe(1);"}})
+	if _, err := ParseReply(string(r), paths, "spec/", paths[0], exp); err == nil || !strings.Contains(err.Error(), "only comments") {
+		t.Fatalf("%v", err)
+	}
+	r, _ = json.Marshal(Reply{Action: Write, Path: paths[0], Bodies: []string{`Given("a", (world) => { world.game = game.newGame(); });`, "expect(1).toBe(1);"}})
+	got, err := ParseReply(string(r), paths, "spec/", paths[0], exp)
+	if err != nil || len(got.Unwrapped) != 1 || got.Unwrapped[0] != 1 || got.Bodies[0] != "world.game = game.newGame();" {
+		t.Fatalf("%+v %v", got, err)
 	}
 }
