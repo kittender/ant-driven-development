@@ -202,3 +202,15 @@ func TestUndefinedWordings(t *testing.T) {
 		}
 	}
 }
+
+func TestExecRunsDetached(t *testing.T) {
+	o := Exec(context.Background(), t.TempDir(), "sh", "-c", "echo out; echo err >&2; echo $CI; exit 3")
+	if o.Exit != 3 || !strings.Contains(o.Stdout, "out") || !strings.Contains(o.Stdout, "1") || !strings.Contains(o.Stderr, "err") {
+		t.Fatalf("%+v", o)
+	}
+	// With no controlling terminal, opening /dev/tty fails.
+	o = Exec(context.Background(), t.TempDir(), "sh", "-c", "echo x > /dev/tty")
+	if o.Exit == 0 {
+		t.Fatal("a detached tool must not be able to write to the terminal")
+	}
+}

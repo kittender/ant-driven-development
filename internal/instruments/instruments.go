@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"time"
 )
@@ -66,6 +67,12 @@ func Exec(ctx context.Context, dir string, argv ...string) Output {
 	start := time.Now()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = dir
+	// Tools sometimes write to the terminal directly (progress, cursor
+	// codes), which left screens of blank lines in the pilot's console.
+	// CI and NO_COLOR quiet them; detach (own session, no controlling
+	// terminal) stops any direct write to the terminal.
+	cmd.Env = append(os.Environ(), "CI=1", "NO_COLOR=1", "FORCE_COLOR=0")
+	detach(cmd)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
