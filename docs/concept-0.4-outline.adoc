@@ -338,6 +338,29 @@ Written 2026-10-28, before any instrument or worker ran on the benchmark. The hu
 
 *Limits stated before the run.* One game, one stack, honey written by one person; a script stands in for the Sensor, Warden and Clock; one model family. A positive result says the loop can close on a small, sharp specification, not that ADD scales.
 
+== Results: the first loop on tic-tac-toe (decision run, 2026-10-28)
+
+Run `20261028-175832`: qwen3:8b, all 22 capped scenarios from a clean workspace, harness frozen after seven trial runs (recorded above). 72 writer sessions, 430k tokens, 36 minutes (34 of them model time). Rules applied unchanged.
+
+[%header,cols="2,1,3"]
+|===
+| Rule | Result | Decision
+| Green without help | *1 / 22* | *Not supported* on qwen3:8b with these bundles: smaller tasks or a larger worker model before Level 1
+| Capped scenario weakened by a session | none | No finding: no session wrote or proposed honey (0 honey events, no drift from the seed)
+| Weakening by the implementing caste | none | Test ownership stays a SHOULD for now
+| Plot warnings | 0 | The proposed plot was never violated; no gardener exists to grow it
+| Part A parse validity | 36 / 36 surveys | Met
+| Part A precision, accuracy, recall | not yet | Needs the human's labels (`instrument-findings.md`, `facts-check.md`)
+|===
+
+*Where the 71 failed attempts went.* 33 tester replies (46% of all sessions) were refused because every body began with its own step registration: all 103 such bodies started with exactly the first line the harness had given, and the code inside was often sensible. The rule "a body must not register a step" did what it said, but the refusal was recoverable by a deterministic unwrap. 30 attempts failed to compile, most on `noUncheckedIndexedAccess` (TS2532, TS18048: "possibly undefined" on `board[r][c]`) and on the worker's own removed `notYet` helper (TS2304, TS2448). Two worker attempts made their scenario pass at runtime and failed only on compile. The auto-import reflex edited 6 writes, none accepted. No change broke another scenario.
+
+*Instrument faults found (Part A, before labelling).* The coverage parser turns a types-only file into a function `(empty-report)` and raises a false 🧪 on `contract.ts` in every survey; coverage paths stay absolute because the workspace path and the tool's path spell `é` differently (Unicode NFC against NFD), so `rel()` fails.
+
+*What this says.* The verdict is about this configuration, not about ADD: the colony never reached the game logic for most scenarios, because the interface between the model and the harness lost most attempts before any test ran. Rejections carried information (exact first line copied, runtime green) that the harness threw away.
+
+*Proposed next run, rules to be fixed before it.* (1) Reflex 3: a body that is a whole registration of the expected expression is unwrapped instead of refused. (2) A decision on `noUncheckedIndexedAccess` (keep, relax in tests, or a typed `cellAt` helper in the contract). (3) Coverage parser: skip `(empty-report)`, normalise Unicode before `rel()`. Then a second decision run under the same Part B table.
+
 == Architecture 0.1 → 0.2
 
 * *Components*: an Instruments component (or Sensor extension) appending `Deposited` events with an instrument actor.
