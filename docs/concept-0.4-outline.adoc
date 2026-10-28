@@ -427,6 +427,24 @@ Asked by the human: no larger model, "make the small work smarter". Run 2 showed
 
 *Not a rule.* Run 2 against run 3 side by side. Changes 1 and 2 ship together, so a drop in compile failures is credited to the pair; the hint log says how often each hint was shown.
 
+== Results: run 3 of the first loop (2026-10-28)
+
+Run `20261028-211236` (trial `20261028-210840` before it, not counted): changes and rules as fixed in "Run 3 of the first loop". 69 sessions, 391k tokens, 59 minutes. Rules applied unchanged.
+
+[%header,cols="2,1,3"]
+|===
+| Rule | Result | Decision
+| Green without help (Part B) | *0 / 22* | *Not supported* on qwen3:8b with these bundles
+| Interface losses | *29 / 69 (42%)* | Between 25% and 50%: *open*
+| Worker sessions that do not compile | *37 / 54 (69%)* | Above 50%: *changes 1 and 2 do not help enough*; by the rule the next run tries thinking on for workers
+| Green with a reflex | 0 of 0 | Nothing to split
+| Weakened honey | none | No honey event, no proposal (run 2 had five wrong-action proposals)
+|===
+
+*Why, from the sessions.* Of the 37 worker writes that did not compile, *32 repeated the method's first line* inside the body, almost always as an expression arrow, `const newGame: GameApi['newGame'] = () => ({ … });`. The unwrap of reflex 4 only recognised a block body (`{ … }`), so the declaration stayed nested inside the generated method, which then returned nothing (`'() => void' is not assignable to '() => GameState'`, 26 + 24 + 34 times). The prompt showed that first line as "written by the Ecosystem", which is likely what the model copied: the same attractor as the testers' first lines in the trials. 20 of the 37 also called a helper they never sent (`checkWinner`, `checkStatus`, `checkDraw`). The other 17 worker losses sent the wrong number of bodies (7 to 48 instead of 6), counted as interface losses. Hints were shown 16 times (readonly 13, implicit any 3); the "string is not a Status" error of run 2 is gone, as the typed first lines intended.
+
+*Reading the rules honestly.* The rules ran as written, and their verdicts stand. But run 3 mostly measured a gap in reflex 4's unwrap, not whether the reflex helps a small worker: 32 of its 37 "code losses" are an interface fault that compiled into `src/`. The split of change 3 counts them as code, as written. The rule for the next run (thinking on) is the human's to confirm, knowing this.
+
 == Architecture 0.1 → 0.2
 
 * *Components*: an Instruments component (or Sensor extension) appending `Deposited` events with an instrument actor.
